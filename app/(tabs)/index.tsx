@@ -1,11 +1,14 @@
 import { Image } from 'expo-image';
 import { Platform, StyleSheet } from 'react-native';
 
+import ComposantText from '@/components/composantArthur';
 import { HelloWave } from '@/components/hello-wave';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Link } from 'expo-router';
+
+
 
 export default function HomeScreen() {
   return (
@@ -41,6 +44,7 @@ export default function HomeScreen() {
           <Link.Trigger>
             <ThemedText type="subtitle">Step 2: Explore</ThemedText>
           </Link.Trigger>
+          <ComposantText/>
           <Link.Preview />
           <Link.Menu>
             <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
@@ -96,3 +100,4 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
 });
+
