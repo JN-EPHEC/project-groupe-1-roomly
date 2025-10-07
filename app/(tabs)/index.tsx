@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+/* import { Image } from 'expo-image';
 import { Platform, StyleSheet } from 'react-native';
 
 import { HelloWave } from '@/components/hello-wave';
@@ -94,5 +94,27 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     position: 'absolute',
+  },
+});
+*/
+
+import React from "react";
+import { View, StyleSheet } from "react-native";
+import SimpleButton from "../../components/SimpleButton";
+
+export default function HomeScreen() {
+  return (
+    <View style={styles.container}>
+      <SimpleButton />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
   },
 });
