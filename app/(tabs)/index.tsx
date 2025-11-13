@@ -1,103 +1,95 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import ComposantText from '@/components/composantArthur';
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
-
-
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <ComposantText/>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const router = useRouter();
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  return (
+    <View style={styles.container}>
+      {/* Logo Roomly */}
+      <Image
+      source={require('../../assets/images/roomly-logo.png')}
+      style={styles.logo}
+      contentFit="contain"
+      />
+
+
+      {/* Texte d’intro */}
+      <Text style={styles.subtitle}>
+        Trouve ou propose un espace de travail, en quelques clics.
+      </Text>
+
+      {/* Boutons de choix */}
+      <View style={styles.buttons}>
+        <Pressable style={styles.button} onPress={() => router.push('/public/signup' as any)}>
+          <Text style={styles.buttonText}>Je cherche un espace</Text>
+        </Pressable>
+
+        <Pressable style={styles.button} onPress={() => router.push('/public/signup_entreprise' as any)}>
+          <Text style={styles.buttonText}>Je loue un espace</Text>
+        </Pressable>
+      </View>
+
+      {/* Lien de connexion */}
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Déjà un compte ?</Text>
+        <Pressable onPress={() => router.push('/public/login')}>
+          <Text style={styles.link}>Connexion</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: {
+    flex: 1,
+    backgroundColor: '#EEF3F8', // fond légèrement bleuté
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  logo: {
+    width: 160,
+    height: 80,
+    marginBottom: 40,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#333',
+    marginBottom: 40,
+  },
+  buttons: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 16,
+  },
+  button: {
+    backgroundColor: '#D9D9D9',
+    width: '90%',
+    borderRadius: 30,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  footer: {
     position: 'absolute',
+    bottom: 60,
+    alignItems: 'center',
+  },
+  footerText: {
+    color: '#000',
+    fontSize: 14,
+  },
+  link: {
+    color: '#007AFF',
+    fontSize: 15,
+    marginTop: 4,
   },
 });
-
