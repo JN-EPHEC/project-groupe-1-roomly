@@ -1,34 +1,41 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-import React, { useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
 import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
-import BottomNavBarEntreprise from "../../components/BottomNavBarEntreprise";
+import { auth, db } from "../../../firebaseConfig";
 
-// Firebase
-import { addDoc, collection } from "firebase/firestore";
-import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
-import { auth, db } from "../../firebaseConfig";
-
-import { useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import {
+    deleteObject,
+    getDownloadURL,
+    getStorage,
+    ref,
+    uploadBytes,
+} from "firebase/storage";
 
 type TimeSlot = {
   id: string;
-  dateISO: string;   // 2025-02-15T00:00:00.000Z
-  dayLabel: string;  // Lundi 15/02/2025
-  start: string;     // 09:00
-  end: string;       // 11:00
+  dateISO: string;
+  dayLabel: string;
+  start: string;
+  end: string;
 };
 
-export default function PublierEspaceScreen() {
+export default function EditerEspace() {
+  const { id } = useLocalSearchParams();
   const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
 
   const [description, setDescription] = useState("");
   const [localisation, setLocalisation] = useState("");
@@ -36,7 +43,10 @@ export default function PublierEspaceScreen() {
   const [prix, setPrix] = useState("");
   const [materiel, setMateriel] = useState("");
 
-  const [images, setImages] = useState<(string | null)[]>([null, null, null]);
+  const [images, setImages] = useState<(string | null)[]>([]);
+  const [oldImages, setOldImages] = useState<string[]>([]);
+
+  const MAX_IMAGES = 4;
 
   // Disponibilités
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
@@ -44,8 +54,40 @@ export default function PublierEspaceScreen() {
   const [startTimeInput, setStartTimeInput] = useState("");
   const [endTimeInput, setEndTimeInput] = useState("");
 
-  // ---------------------- IMAGES ----------------------
-  const pickImage = async (index: number) => {
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const refDoc = doc(db, "espaces", id as string);
+        const snap = await getDoc(refDoc);
+
+        if (snap.exists()) {
+          const data = snap.data();
+
+          setDescription(data.description);
+          setLocalisation(data.localisation);
+          setCapacite(data.capacite);
+          setPrix(data.prix);
+          setMateriel(data.materiel);
+
+          setImages(data.images || []);
+          setOldImages(data.images || []);
+
+          setTimeSlots((data.timeSlots || []) as TimeSlot[]);
+        }
+      } catch (e) {
+        console.log(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // ---------------- IMAGES ----------------
+  const pickImage = async () => {
+    if (images.length >= MAX_IMAGES) return;
+
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       alert("Permission refusée");
@@ -59,10 +101,14 @@ export default function PublierEspaceScreen() {
     });
 
     if (!result.canceled) {
-      const newImages = [...images];
-      newImages[index] = result.assets[0].uri;
-      setImages(newImages);
+      setImages([...images, result.assets[0].uri]);
     }
+  };
+
+  const deleteImage = (index: number) => {
+    const newImages = [...images];
+    newImages.splice(index, 1);
+    setImages(newImages);
   };
 
   const uploadImages = async () => {
@@ -70,8 +116,31 @@ export default function PublierEspaceScreen() {
     const urls: string[] = [];
 
     for (let i = 0; i < images.length; i++) {
-      if (images[i]) {
-        const response = await fetch(images[i]!);
+      const img = images[i];
+
+      // image non modifiée (URL Firebase) → on garde
+      if (img && img.startsWith("https")) {
+        urls.push(img);
+        continue;
+      }
+
+      // image remplacée → supprimer ancienne si elle existait
+      if (oldImages[i]) {
+        try {
+          const match = oldImages[i].match(/\/o\/(.+?)\?/);
+          if (match) {
+            const fullPath = decodeURIComponent(match[1]);
+            const oldRef = ref(storage, fullPath);
+            await deleteObject(oldRef);
+          }
+        } catch (e) {
+          console.log("Erreur suppression ancienne image :", e);
+        }
+      }
+
+      // nouvelle image → upload
+      if (img) {
+        const response = await fetch(img);
         const blob = await response.blob();
 
         const imageRef = ref(
@@ -88,7 +157,7 @@ export default function PublierEspaceScreen() {
     return urls;
   };
 
-  // ------------------ DISPONIBILITÉS ------------------
+  // ---------------- DISPONIBILITÉS ----------------
 
   const addTimeSlot = () => {
     if (!dateInput || !startTimeInput || !endTimeInput) {
@@ -96,7 +165,6 @@ export default function PublierEspaceScreen() {
       return;
     }
 
-    // dateInput attendu : JJ/MM/AAAA
     const [dayStr, monthStr, yearStr] = dateInput.split("/");
     if (!dayStr || !monthStr || !yearStr) {
       alert("Format de date invalide. Utilise JJ/MM/AAAA.");
@@ -143,83 +211,92 @@ export default function PublierEspaceScreen() {
     setEndTimeInput("");
   };
 
-  const removeTimeSlot = (id: string) => {
-    setTimeSlots((prev) => prev.filter((s) => s.id !== id));
+  const removeTimeSlot = (idSlot: string) => {
+    setTimeSlots((prev) => prev.filter((s) => s.id !== idSlot));
   };
 
-  // ------------------ PUBLier L'ANNONCE ------------------
+  // ---------------- SAUVEGARDE ----------------
 
-  const publierAnnonce = async () => {
+  const sauvegarder = async () => {
+    setLoading(true);
     try {
-      if (!auth.currentUser) {
-        alert("Vous devez être connecté.");
-        return;
-      }
+      const uploadedImages = await uploadImages();
 
-      const urls = await uploadImages();
-
-      await addDoc(collection(db, "espaces"), {
-        uid: auth.currentUser.uid,
+      await updateDoc(doc(db, "espaces", id as string), {
         description,
         localisation,
         capacite,
         prix,
         materiel,
-        images: urls,
-        timeSlots, // <-- nouvelles disponibilités
-        createdAt: new Date(),
+        images: uploadedImages,
+        timeSlots,
       });
 
-      alert("Annonce publiée !");
+      alert("Annonce mise à jour !");
       router.push("/entreprise/home_entreprise");
     } catch (e) {
-      console.log("❌ Erreur publication:", e);
-      alert("Erreur lors de la publication.");
+      console.log(e);
+      alert("Erreur lors de la sauvegarde.");
     }
+    setLoading(false);
   };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3E7CB1" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Image
-          source={require("../../assets/images/roomly-logo.png")}
-          style={styles.logo}
-          resizeMode="contain"
-        />
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* BACK */}
+        <Pressable
+          style={{ width: "90%", marginTop: 40 }}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={26} color="#000" />
+        </Pressable>
 
-        <Text style={styles.sectionTitle}>Ajouter des images</Text>
+        <Text style={styles.title}>Modifier l’espace</Text>
 
+        {/* IMAGES */}
         <View style={styles.imageRow}>
-          {images.map((img, index) => (
-            <Pressable
-              key={index}
-              style={styles.imagePlaceholder}
-              onPress={() => pickImage(index)}
-            >
-              {img ? (
+          {images.map((img, index) =>
+            img ? (
+              <View key={index} style={styles.imageContainer}>
                 <Image source={{ uri: img }} style={styles.uploadedImage} />
-              ) : (
-                <Ionicons name="add-outline" size={40} color="#555" />
-              )}
+
+                <Pressable
+                  style={styles.deleteBtn}
+                  onPress={() => deleteImage(index)}
+                >
+                  <Ionicons name="remove-circle" size={26} color="#C0392B" />
+                </Pressable>
+              </View>
+            ) : null
+          )}
+
+          {images.length < MAX_IMAGES && (
+            <Pressable style={styles.addImage} onPress={pickImage}>
+              <Ionicons name="add-outline" size={40} color="#555" />
             </Pressable>
-          ))}
+          )}
         </View>
 
+        {/* FORM INFOS */}
         <Text style={styles.label}>Description</Text>
         <TextInput
-          style={[styles.inputLarge]}
-          placeholder="..."
-          placeholderTextColor="#777"
+          style={styles.input}
           value={description}
           onChangeText={setDescription}
-          multiline
         />
 
         <Text style={styles.label}>Localisation</Text>
         <TextInput
           style={styles.input}
-          placeholder="..."
-          placeholderTextColor="#777"
           value={localisation}
           onChangeText={setLocalisation}
         />
@@ -227,8 +304,6 @@ export default function PublierEspaceScreen() {
         <Text style={styles.label}>Capacité</Text>
         <TextInput
           style={styles.input}
-          placeholder="1 - 100"
-          placeholderTextColor="#777"
           value={capacite}
           onChangeText={setCapacite}
           keyboardType="numeric"
@@ -237,28 +312,21 @@ export default function PublierEspaceScreen() {
         <Text style={styles.label}>Prix</Text>
         <TextInput
           style={styles.input}
-          placeholder="€/h"
-          placeholderTextColor="#777"
           value={prix}
           onChangeText={setPrix}
-          keyboardType="numeric"
         />
 
-        <Text style={styles.label}>Matériel à disposition :</Text>
+        <Text style={styles.label}>Matériel</Text>
         <TextInput
-          style={[styles.inputLarge]}
-          placeholder="- wifi{'\n'}- écran{'\n'}- ..."
-          placeholderTextColor="#777"
+          style={styles.input}
           value={materiel}
           onChangeText={setMateriel}
-          multiline
         />
 
-        {/* ---------------- DISPONIBILITÉS ---------------- */}
-        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>
+        {/* DISPONIBILITÉS */}
+        <Text style={[styles.label, { marginTop: 10 }]}>
           Disponibilités de l’espace
         </Text>
-
         <Text style={styles.helperText}>
           Format date : JJ/MM/AAAA (ex : 15/02/2025){"\n"}Heures : 09:00
         </Text>
@@ -313,66 +381,75 @@ export default function PublierEspaceScreen() {
           </View>
         )}
 
-        <Pressable style={styles.publishButton} onPress={publierAnnonce}>
-          <Text style={styles.publishText}>Publier</Text>
-          <Ionicons name="arrow-forward" size={20} color="#fff" />
+        <Pressable style={styles.button} onPress={sauvegarder}>
+          <Text style={styles.buttonText}>Sauvegarder</Text>
         </Pressable>
 
-        <View style={{ height: 120 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
-
-      <BottomNavBarEntreprise activeTab="settings" />
     </View>
   );
 }
 
-// STYLES
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#EEF3F8",
   },
 
-  scrollContent: {
-    paddingTop: 20,
-    paddingBottom: 140,
+  content: {
     alignItems: "center",
+    paddingBottom: 80,
   },
 
-  logo: {
-    width: 200,
-    height: 90,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#EEF3F8",
+  },
+
+  title: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginTop: 10,
     marginBottom: 20,
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
     width: "90%",
-    marginBottom: 10,
   },
 
   imageRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     width: "90%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
     marginBottom: 20,
   },
 
-  imagePlaceholder: {
+  imageContainer: {
     width: "30%",
     aspectRatio: 1,
-    backgroundColor: "#D9D9D9",
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
+    position: "relative",
   },
 
   uploadedImage: {
     width: "100%",
     height: "100%",
+    borderRadius: 12,
+  },
+
+  deleteBtn: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+  },
+
+  addImage: {
+    width: "30%",
+    aspectRatio: 1,
+    backgroundColor: "#D9D9D9",
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 12,
   },
 
   label: {
@@ -389,40 +466,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 14,
     fontSize: 16,
-    marginBottom: 20,
+    marginBottom: 18,
   },
 
-  inputLarge: {
-    width: "90%",
-    minHeight: 110,
-    backgroundColor: "#D9D9D9",
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingVertical: 14,
-    fontSize: 16,
-    textAlignVertical: "top",
-    marginBottom: 20,
-  },
-
-  publishButton: {
+  button: {
     width: "65%",
     backgroundColor: "#3E7CB1",
     paddingVertical: 15,
     borderRadius: 12,
-    flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
     marginTop: 10,
   },
 
-  publishText: {
+  buttonText: {
     color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
-    marginRight: 8,
+    fontSize: 17,
+    fontWeight: "700",
   },
 
-  // ---- disponibilités ----
+  // dispo
   helperText: {
     width: "90%",
     fontSize: 12,

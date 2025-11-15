@@ -125,6 +125,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 10,
     width: "90%",
+    alignSelf: "center",
+    minWidth: "90%",
+    maxWidth: "90%",
   },
   unreadMessage: {
     backgroundColor: "#BFD9F1",
@@ -149,10 +152,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#000",
+    flexShrink: 1,
   },
   subtitle: {
     fontSize: 13,
     color: "#333",
+    flexShrink: 1,
   },
   time: {
     fontSize: 12,

@@ -1,27 +1,64 @@
 // app/entreprise/home_entreprise.tsx
 import BottomNavBarEntreprise from "@/components/BottomNavBarEntreprise";
 import { useRouter } from "expo-router";
-import React from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { auth, db } from "../../firebaseConfig";
 
 export default function HomeEntrepriseScreen() {
   const router = useRouter();
+  const [espaces, setEspaces] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEspaces = async () => {
+      try {
+        const q = query(
+          collection(db, "espaces"),
+          where("uid", "==", auth.currentUser?.uid)
+        );
+        const snap = await getDocs(q);
+        const results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setEspaces(results);
+      } catch (error) {
+        console.log("Erreur Firestore:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEspaces();
+  }, []);
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* LOGO */}
         <Image
           source={require("../../assets/images/roomly-logo.png")}
           style={styles.logo}
           resizeMode="contain"
         />
 
+        {/* BUTTONS */}
         <View style={styles.buttonsContainer}>
-          <Pressable style={styles.button} onPress={() => router.push("/entreprise/publier_espace")}>
+          <Pressable
+            style={styles.button}
+            onPress={() => router.push("/entreprise/publier_espace")}
+          >
             <Text style={styles.buttonText}>Publier un nouvel espace</Text>
           </Pressable>
 
-          <Pressable style={styles.button}>
+          <Pressable style={styles.button} onPress={() => router.push("/entreprise/gerer_annonces")}>
             <Text style={styles.buttonText}>Gérer mes annonces</Text>
           </Pressable>
 
@@ -32,21 +69,37 @@ export default function HomeEntrepriseScreen() {
           </Pressable>
         </View>
 
+        {/* MES BUREAUX */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Mes bureaux</Text>
-          <View style={styles.grid}>
-            {Array.from({ length: 6 }).map((_, index) => (
-              <View key={index} style={styles.officeCard}>
-                <View style={styles.officeImage} />
-                <Text style={styles.officeText}>Localisation</Text>
-                <Text style={styles.officeText}>Prix/h</Text>
-              </View>
-            ))}
-          </View>
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#3E7CB1" />
+          ) : espaces.length === 0 ? (
+            <Text style={styles.emptyText}>Aucune annonce publiée.</Text>
+          ) : (
+            <View style={styles.grid}>
+              {espaces.map((espace) => (
+                <Pressable
+                  key={espace.id}
+                  style={styles.officeCard}
+                  onPress={() =>router.push(`/entreprise/details_espace/${espace.id}`)
+                  }
+                >
+                  <Image
+                    source={{ uri: espace.images?.[0] }}
+                    style={styles.officeImage}
+                  />
+                  <Text style={styles.officeText}>{espace.localisation}</Text>
+                  <Text style={styles.officeText}>{espace.prix} €/h</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
 
-      <BottomNavBarEntreprise activeTab="menu"/>
+      <BottomNavBarEntreprise activeTab="menu" />
     </View>
   );
 }
@@ -55,65 +108,79 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#EEF3F8",
-    alignItems: "center",
   },
+
   scrollContent: {
     paddingVertical: 20,
-    alignItems: "center",
-    paddingBottom: 100, // espace pour la navbar
+    paddingHorizontal: 20, // ← PLUS LARGE
   },
+
   logo: {
-    width: 180,
-    height: 80,
-    marginTop: 30,
-    marginBottom: 15,
+    width: 200,
+    height: 90,
+    alignSelf: "center",
+    marginTop: 20,
+    marginBottom: 20,
   },
+
   buttonsContainer: {
-    width: "85%",
-    alignItems: "center",
+    width: "100%", // ← PREND TOUTE LA LARGEUR
+    gap: 16,
     marginBottom: 40,
   },
+
   button: {
     backgroundColor: "#D9D9D9",
     borderRadius: 14,
-    paddingVertical: 14,
-    width: "100%",
+    paddingVertical: 18,
+    width: "100%", // ← LARGE
     alignItems: "center",
-    marginBottom: 16,
   },
+
   buttonText: {
     fontSize: 16,
     color: "#000",
     textAlign: "center",
   },
+
   section: {
-    width: "90%",
+    width: "100%", // ← LARGEUR TOTALE
   },
+
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
     color: "#000",
-    marginBottom: 12,
+    marginBottom: 16,
   },
+
+  emptyText: {
+    textAlign: "center",
+    marginTop: 10,
+    color: "#555",
+  },
+
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
   },
+
   officeCard: {
-    width: "47%",
-    marginBottom: 18,
+    width: "48%", // ← PLUS LARGE
+    marginBottom: 24,
   },
+
   officeImage: {
     width: "100%",
-    height: 100,
+    height: 130, // ← PLUS GRAND
     backgroundColor: "#D9D9D9",
-    borderRadius: 10,
-    marginBottom: 4,
+    borderRadius: 12,
+    marginBottom: 6,
   },
+
   officeText: {
     color: "#000",
-    fontSize: 13,
+    fontSize: 14,
   },
 });
-
