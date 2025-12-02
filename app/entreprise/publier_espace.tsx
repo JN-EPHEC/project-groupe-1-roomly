@@ -1,3 +1,4 @@
+// app/entreprise/publier_espace.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
@@ -12,19 +13,17 @@ import {
 } from "react-native";
 import BottomNavBarEntreprise from "../../components/BottomNavBarEntreprise";
 
-// Firebase
+import { useRouter } from "expo-router";
 import { addDoc, collection } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { auth, db } from "../../firebaseConfig";
 
-import { useRouter } from "expo-router";
-
 type TimeSlot = {
   id: string;
-  dateISO: string;   // 2025-02-15T00:00:00.000Z
-  dayLabel: string;  // Lundi 15/02/2025
-  start: string;     // 09:00
-  end: string;       // 11:00
+  dateISO: string;
+  dayLabel: string;
+  start: string;
+  end: string;
 };
 
 export default function PublierEspaceScreen() {
@@ -35,10 +34,10 @@ export default function PublierEspaceScreen() {
   const [capacite, setCapacite] = useState("");
   const [prix, setPrix] = useState("");
   const [materiel, setMateriel] = useState("");
+  const [accessDetails, setAccessDetails] = useState(""); // 🔹 Nouveau
 
   const [images, setImages] = useState<(string | null)[]>([null, null, null]);
 
-  // Disponibilités
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [dateInput, setDateInput] = useState("");
   const [startTimeInput, setStartTimeInput] = useState("");
@@ -47,10 +46,7 @@ export default function PublierEspaceScreen() {
   // ---------------------- IMAGES ----------------------
   const pickImage = async (index: number) => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      alert("Permission refusée");
-      return;
-    }
+    if (!permission.granted) return alert("Permission refusée");
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -89,29 +85,13 @@ export default function PublierEspaceScreen() {
   };
 
   // ------------------ DISPONIBILITÉS ------------------
-
   const addTimeSlot = () => {
-    if (!dateInput || !startTimeInput || !endTimeInput) {
-      alert("Remplis la date et les heures (début et fin).");
-      return;
-    }
+    if (!dateInput || !startTimeInput || !endTimeInput)
+      return alert("Remplis la date et les heures.");
 
-    // dateInput attendu : JJ/MM/AAAA
     const [dayStr, monthStr, yearStr] = dateInput.split("/");
-    if (!dayStr || !monthStr || !yearStr) {
-      alert("Format de date invalide. Utilise JJ/MM/AAAA.");
-      return;
-    }
-
-    const date = new Date(
-      Number(yearStr),
-      Number(monthStr) - 1,
-      Number(dayStr)
-    );
-    if (isNaN(date.getTime())) {
-      alert("Date invalide.");
-      return;
-    }
+    const date = new Date(+yearStr, +monthStr - 1, +dayStr);
+    if (isNaN(date.getTime())) return alert("Date invalide.");
 
     const dayNames = [
       "Dimanche",
@@ -124,10 +104,7 @@ export default function PublierEspaceScreen() {
     ];
     const jour = dayNames[date.getDay()];
 
-    const formattedDisplay = `${jour} ${dayStr.padStart(
-      2,
-      "0"
-    )}/${monthStr.padStart(2, "0")}/${yearStr}`;
+    const formattedDisplay = `${jour} ${dayStr}/${monthStr}/${yearStr}`;
 
     const newSlot: TimeSlot = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -147,27 +124,27 @@ export default function PublierEspaceScreen() {
     setTimeSlots((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // ------------------ PUBLier L'ANNONCE ------------------
-
+  // ------------------ PUBLIER ------------------
   const publierAnnonce = async () => {
     try {
-      if (!auth.currentUser) {
-        alert("Vous devez être connecté.");
-        return;
-      }
+      if (!auth.currentUser) return alert("Vous devez être connecté.");
 
       const urls = await uploadImages();
 
       await addDoc(collection(db, "espaces"), {
         uid: auth.currentUser.uid,
+        nom: description.substring(0, 20) || "Espace",
         description,
         localisation,
         capacite,
         prix,
         materiel,
+        accessDetails,   // 🔹 Enregistré ici
         images: urls,
-        timeSlots, // <-- nouvelles disponibilités
+        timeSlots,
         createdAt: new Date(),
+        popularity: 0,
+        type: "bureau",
       });
 
       alert("Annonce publiée !");
@@ -207,19 +184,16 @@ export default function PublierEspaceScreen() {
 
         <Text style={styles.label}>Description</Text>
         <TextInput
-          style={[styles.inputLarge]}
-          placeholder="..."
-          placeholderTextColor="#777"
+          style={styles.inputLarge}
           value={description}
           onChangeText={setDescription}
+          placeholder="..."
           multiline
         />
 
         <Text style={styles.label}>Localisation</Text>
         <TextInput
           style={styles.input}
-          placeholder="..."
-          placeholderTextColor="#777"
           value={localisation}
           onChangeText={setLocalisation}
         />
@@ -227,47 +201,48 @@ export default function PublierEspaceScreen() {
         <Text style={styles.label}>Capacité</Text>
         <TextInput
           style={styles.input}
-          placeholder="1 - 100"
-          placeholderTextColor="#777"
           value={capacite}
           onChangeText={setCapacite}
           keyboardType="numeric"
+          placeholder="1 - 100"
         />
 
-        <Text style={styles.label}>Prix</Text>
+        <Text style={styles.label}>Prix (€/h)</Text>
         <TextInput
           style={styles.input}
-          placeholder="€/h"
-          placeholderTextColor="#777"
           value={prix}
           onChangeText={setPrix}
           keyboardType="numeric"
         />
 
-        <Text style={styles.label}>Matériel à disposition :</Text>
+        <Text style={styles.label}>Matériel</Text>
         <TextInput
-          style={[styles.inputLarge]}
-          placeholder="- wifi{'\n'}- écran{'\n'}- ..."
-          placeholderTextColor="#777"
+          style={styles.inputLarge}
           value={materiel}
           onChangeText={setMateriel}
           multiline
         />
 
-        {/* ---------------- DISPONIBILITÉS ---------------- */}
-        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>
-          Disponibilités de l’espace
-        </Text>
+        {/* 🔹 NOUVEAU CHAMP DÉTAILS D’ACCÈS */}
+        <Text style={styles.label}>Détails d’accès / instructions</Text>
+        <TextInput
+          style={styles.inputLarge}
+          value={accessDetails}
+          onChangeText={setAccessDetails}
+          placeholder={
+            "Code d’accès, étage, personne de contact...\n(ex : Code porte 1234, 4e étage, sonnez chez 'Cowork Loft')"
+          }
+          multiline
+        />
 
-        <Text style={styles.helperText}>
-          Format date : JJ/MM/AAAA (ex : 15/02/2025){"\n"}Heures : 09:00
+        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>
+          Disponibilités
         </Text>
 
         <View style={styles.slotInputsRow}>
           <TextInput
             style={[styles.input, styles.slotInput]}
             placeholder="Date (JJ/MM/AAAA)"
-            placeholderTextColor="#777"
             value={dateInput}
             onChangeText={setDateInput}
           />
@@ -277,14 +252,12 @@ export default function PublierEspaceScreen() {
           <TextInput
             style={[styles.input, styles.slotInputHalf]}
             placeholder="Début (HH:MM)"
-            placeholderTextColor="#777"
             value={startTimeInput}
             onChangeText={setStartTimeInput}
           />
           <TextInput
             style={[styles.input, styles.slotInputHalf]}
             placeholder="Fin (HH:MM)"
-            placeholderTextColor="#777"
             value={endTimeInput}
             onChangeText={setEndTimeInput}
           />
@@ -328,60 +301,11 @@ export default function PublierEspaceScreen() {
 
 // STYLES
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#EEF3F8",
-  },
-
-  scrollContent: {
-    paddingTop: 20,
-    paddingBottom: 140,
-    alignItems: "center",
-  },
-
-  logo: {
-    width: 200,
-    height: 90,
-    marginBottom: 20,
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    width: "90%",
-    marginBottom: 10,
-  },
-
-  imageRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "90%",
-    marginBottom: 20,
-  },
-
-  imagePlaceholder: {
-    width: "30%",
-    aspectRatio: 1,
-    backgroundColor: "#D9D9D9",
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
-  },
-
-  uploadedImage: {
-    width: "100%",
-    height: "100%",
-  },
-
-  label: {
-    width: "90%",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 6,
-  },
-
+  container: { flex: 1, backgroundColor: "#EEF3F8" },
+  scrollContent: { paddingTop: 20, paddingBottom: 140, alignItems: "center" },
+  logo: { width: 200, height: 90, marginBottom: 20 },
+  sectionTitle: { width: "90%", fontSize: 18, fontWeight: "600", marginBottom: 10 },
+  label: { width: "90%", fontSize: 16, fontWeight: "600", marginBottom: 6 },
   input: {
     width: "90%",
     backgroundColor: "#D9D9D9",
@@ -391,19 +315,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 20,
   },
-
   inputLarge: {
     width: "90%",
     minHeight: 110,
     backgroundColor: "#D9D9D9",
     borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingVertical: 14,
+    padding: 15,
     fontSize: 16,
     textAlignVertical: "top",
     marginBottom: 20,
   },
-
   publishButton: {
     width: "65%",
     backgroundColor: "#3E7CB1",
@@ -414,46 +335,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-
-  publishText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
-    marginRight: 8,
-  },
-
-  // ---- disponibilités ----
-  helperText: {
+  publishText: { color: "#fff", fontWeight: "600", fontSize: 18, marginRight: 8 },
+  imageRow: {
     width: "90%",
-    fontSize: 12,
-    color: "#555",
-    marginBottom: 6,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 20,
   },
-  slotInputsRow: {
-    width: "90%",
+  imagePlaceholder: {
+    width: "30%",
+    aspectRatio: 1,
+    backgroundColor: "#D9D9D9",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
   },
-  slotInput: {
-    width: "100%",
-  },
-  slotInputHalf: {
-    width: "48%",
-  },
+  uploadedImage: { width: "100%", height: "100%" },
   addSlotBtn: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
     marginLeft: "5%",
     marginBottom: 10,
   },
-  addSlotText: {
-    color: "#3E7CB1",
-    marginLeft: 4,
-    fontWeight: "600",
-  },
-  slotList: {
-    width: "90%",
-    marginBottom: 20,
-  },
+  addSlotText: { color: "#3E7CB1", marginLeft: 4, fontWeight: "600" },
+  slotInputsRow: { width: "90%" },
+  slotInputHalf: { width: "48%" },
+  slotInput: { width: "100%" },
+  slotList: { width: "90%", marginBottom: 20 },
   slotRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -461,13 +370,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#DDD",
   },
-  slotMainText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-  },
-  slotSubText: {
-    fontSize: 13,
-    color: "#333",
-  },
+  slotMainText: { fontSize: 14, fontWeight: "600" },
+  slotSubText: { fontSize: 13, color: "#333" },
 });

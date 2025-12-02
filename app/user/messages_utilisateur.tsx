@@ -1,27 +1,96 @@
+// app/user/messages_utilisateur.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+import { useEffect, useState } from "react";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import BottomNavBar from "../../components/BottomNavBar";
+import { auth, db } from "../../firebaseConfig";
 
-export default function MessagesScreen() {
+export default function MessagesUtilisateur() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
+  const [threads, setThreads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const messages = [
-    { id: 1, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: true },
-    { id: 2, user: "Daniel", bureau: "Bureau central + Bruxelles", time: "Il y a 1h", unread: true },
-    { id: 3, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: false },
-    { id: 4, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: false },
-    { id: 5, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: false },
-  ];
+  useEffect(() => {
+    const loadThreads = async () => {
+      try {
+        const uid = auth.currentUser?.uid;
+        if (!uid) return;
 
-  // 🔍 Filtrage en fonction du texte tapé dans la barre
-  const filteredMessages = messages.filter((msg) =>
-    msg.user.toLowerCase().includes(search.toLowerCase())
+        // 🔍 Tous les threads de cet utilisateur
+        const q = query(
+          collection(db, "threads"),
+          where("userId", "==", uid)
+        );
+
+        const snap = await getDocs(q);
+
+        const list: any[] = [];
+
+        for (const d of snap.docs) {
+          const data = d.data();
+
+          // Charger nom entreprise
+          let entrepriseName = "Entreprise";
+          if (data.entrepriseId) {
+            const entSnap = await getDoc(doc(db, "users", data.entrepriseId));
+            if (entSnap.exists()) {
+              const e = entSnap.data();
+              entrepriseName = e.name || e.email || "Entreprise";
+            }
+          }
+
+          list.push({
+            id: d.id,
+            entrepriseName,
+            espaceName: data.espaceNom,
+            lastMessage: data.lastMessage || "",
+            unread: data.unreadUser || false,
+            updatedAt: data.updatedAt || 0,
+          });
+        }
+
+        // Trier par date DESC
+        list.sort((a, b) => b.updatedAt - a.updatedAt);
+
+        setThreads(list);
+      } catch (e) {
+        console.log("Erreur chargement threads:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadThreads();
+  }, []);
+
+  const filtered = threads.filter(
+    (t) =>
+      t.entrepriseName.toLowerCase().includes(search.toLowerCase()) ||
+      t.espaceName.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+
         {/* Logo */}
         <Image
           source={require("../../assets/images/roomly-logo.png")}
@@ -31,143 +100,75 @@ export default function MessagesScreen() {
 
         {/* Barre de recherche */}
         <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={20} color="#555" style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={20} color="#555" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher un utilisateur..."
+            placeholder="Rechercher..."
             value={search}
             onChangeText={setSearch}
-            placeholderTextColor="#666"
           />
         </View>
 
-        {/* Titre */}
-        <Text style={styles.title}>Messages ({filteredMessages.length})</Text>
+        <Text style={styles.title}>Messages ({filtered.length})</Text>
 
-        {/* Liste des messages */}
-        {filteredMessages.map((msg) => (
-          <View
-            key={msg.id}
-            style={[styles.messageCard, msg.unread && styles.unreadMessage]}
-          >
-            <View style={styles.row}>
-              <View style={styles.avatar} />
-              <View style={styles.messageInfo}>
-                <Text style={styles.username}>{msg.user}</Text>
-                <Text style={styles.subtitle}>{msg.bureau}</Text>
+        {loading ? (
+          <Text style={{ marginTop: 20 }}>Chargement...</Text>
+        ) : filtered.length === 0 ? (
+          <Text style={{ marginTop: 20 }}>Aucune conversation.</Text>
+        ) : (
+          filtered.map((t) => (
+            <Pressable
+              key={t.id}
+              onPress={() => router.push(`/user/messages/${t.id}`)}
+              style={[styles.messageCard, t.unread && styles.unread]}
+            >
+              <View style={styles.row}>
+                <View style={styles.avatar} />
+
+                <View style={styles.messageInfo}>
+                  <Text style={styles.username}>{t.entrepriseName}</Text>
+                  <Text style={styles.subtitle}>{t.espaceName}</Text>
+                  <Text style={styles.preview}>{t.lastMessage}</Text>
+                </View>
               </View>
-              <Text style={styles.time}>{msg.time}</Text>
-            </View>
+            </Pressable>
+          ))
+        )}
 
-            <Image
-              source={require("../../assets/images/bureau_exemple.jpg")}
-              style={styles.officeImage}
-              resizeMode="cover"
-            />
-          </View>
-        ))}
-
-        <View style={{ height: 80 }} /> {/* espace bas pour la nav bar */}
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ✅ Barre de navigation en bas */}
       <BottomNavBar activeTab="message" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#EEF3F8",
-    alignItems: "center",
-  },
-  scrollContent: {
-    alignItems: "center",
-    paddingVertical: 20,
-    paddingBottom: 120,
-  },
-  logo: {
-    width: 160,
-    height: 80,
-    marginTop: 20,
-    marginBottom: 10,
-  },
+  container: { flex: 1, backgroundColor: "#EEF3F8" },
+  scrollContent: { paddingVertical: 20, alignItems: "center" },
+  logo: { width: 160, height: 80, marginBottom: 15 },
   searchContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#D9D9D9",
-    borderRadius: 20,
     width: "85%",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: "#D9D9D9",
+    padding: 10,
+    borderRadius: 20,
     marginBottom: 15,
   },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: "#000",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: "#000",
+  searchInput: { flex: 1, marginLeft: 10 },
+  title: { width: "90%", fontSize: 22, fontWeight: "700", marginBottom: 15 },
+  messageCard: {
     width: "90%",
+    backgroundColor: "#D9D9D9",
+    padding: 14,
+    borderRadius: 12,
     marginBottom: 12,
   },
-  messageCard: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 10,
-    width: "90%",
-    alignSelf: "center",
-    minWidth: "90%",
-    maxWidth: "90%",
-  },
-  unreadMessage: {
-    backgroundColor: "#BFD9F1",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 50,
-    backgroundColor: "#000",
-    marginRight: 10,
-  },
-  messageInfo: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  username: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#000",
-    flexShrink: 1,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#333",
-    flexShrink: 1,
-  },
-  time: {
-    fontSize: 12,
-    color: "#444",
-  },
-  officeImage: {
-    width: 90,
-    height: 60,
-    borderRadius: 6,
-    marginTop: 8,
-    marginLeft: 50,
-  },
+  unread: { backgroundColor: "#BFD9F1" },
+  row: { flexDirection: "row", alignItems: "center" },
+  avatar: { width: 45, height: 45, borderRadius: 50, backgroundColor: "#000", marginRight: 12 },
+  messageInfo: { flex: 1 },
+  username: { fontSize: 16, fontWeight: "700" },
+  subtitle: { fontSize: 13, color: "#666" },
+  preview: { marginTop: 4, color: "#333" },
 });

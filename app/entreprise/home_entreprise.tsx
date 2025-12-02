@@ -1,7 +1,7 @@
 // app/entreprise/home_entreprise.tsx
 import BottomNavBarEntreprise from "@/components/BottomNavBarEntreprise";
 import { useRouter } from "expo-router";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,34 +14,98 @@ import {
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
-export default function HomeEntrepriseScreen() {
+export default function HomeEntreprise() {
   const router = useRouter();
-  const [espaces, setEspaces] = useState<any[]>([]);
+
+  const [reservations, setReservations] = useState<any[]>([]);
+  const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [kpis, setKpis] = useState({ today: 0, monthly: 0, occupancy: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchEspaces = async () => {
+    const load = async () => {
       try {
-        const q = query(
-          collection(db, "espaces"),
-          where("uid", "==", auth.currentUser?.uid)
+        const uid = auth.currentUser?.uid;
+
+        // 1. Charger toutes les réservations des espaces appartenant à l’entreprise
+        const espacesSnap = await getDocs(
+          query(collection(db, "espaces"), where("uid", "==", uid))
         );
-        const snap = await getDocs(q);
-        const results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setEspaces(results);
-      } catch (error) {
-        console.log("Erreur Firestore:", error);
+        const espaceIds = espacesSnap.docs.map((d) => d.id);
+
+        if (espaceIds.length === 0) {
+          setLoading(false);
+          return;
+        }
+
+        const rSnap = await getDocs(collection(db, "reservations"));
+        const rawReservations = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+const all: any[] = [];
+
+for (const r of rawReservations as any) {
+  if (!espaceIds.includes(r.espaceId)) continue;
+
+  // Charger le nom du user
+  let userName = "Utilisateur";
+  if (r.userId) {
+    const userSnap = await getDoc(doc(db, "users", r.userId));
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      userName = data.name || data.email || "Utilisateur";
+    }
+  }
+
+  all.push({
+    ...r,
+    userName,
+  });
+}
+
+        // Trier date ascendante
+        all.sort((a: any, b: any) => (a.date > b.date ? 1 : -1));
+
+        setReservations(all);
+
+        // 2. Reservations à venir
+        const future = all.filter((r: any) => new Date(r.date) >= new Date());
+        setUpcoming(future.slice(0, 5));
+
+        // 3. KPIs calculés
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayCount = all.filter((r: any) => r.date === todayStr).length;
+
+        // Revenus du mois (à la date de création de la réservation)
+const month = new Date().getMonth();
+const monthlyRev = all
+  .filter((r: any) => {
+    if (!r.createdAt) return false;
+    const created = r.createdAt.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+    return created.getMonth() === month;
+  })
+  .reduce((sum, r: any) => sum + (r.total || 0), 0);
+
+        // Taux d’occupation simplifié : (réservations / 30 jours)
+        const occupancy = Math.min(100, Math.round((all.length / 30) * 100));
+
+        setKpis({
+          today: todayCount,
+          monthly: monthlyRev,
+          occupancy,
+        });
+      } catch (err) {
+        console.log("Erreur:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchEspaces();
+    load();
   }, []);
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+
         {/* LOGO */}
         <Image
           source={require("../../assets/images/roomly-logo.png")}
@@ -49,7 +113,71 @@ export default function HomeEntrepriseScreen() {
           resizeMode="contain"
         />
 
-        {/* BUTTONS */}
+        {/* ------------------ KPIs ------------------ */}
+        <Text style={styles.sectionTitle}>Tableau de bord</Text>
+
+        <View style={styles.kpiRow}>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiValue}>{kpis.today}</Text>
+            <Text style={styles.kpiLabel}>Réservations aujourd'hui</Text>
+          </View>
+
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiValue}>{kpis.monthly} €</Text>
+            <Text style={styles.kpiLabel}>Revenus du mois</Text>
+          </View>
+
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiValue}>{kpis.occupancy}%</Text>
+            <Text style={styles.kpiLabel}>Taux d'occupation</Text>
+          </View>
+        </View>
+
+        {/* ------------------ NOUVELLES RÉSERVATIONS ------------------ */}
+        <Text style={styles.sectionTitle}>Nouvelles réservations</Text>
+
+        {loading ? (
+          <ActivityIndicator size="large" color="#3E7CB1" />
+        ) : reservations.length === 0 ? (
+          <Text style={styles.emptyText}>Aucune réservation.</Text>
+        ) : (
+          reservations.slice(0, 3).map((r) => (
+            <View key={r.id} style={styles.resaCard}>
+  <Text style={styles.resaTitle}>📍 {r.date}</Text>
+
+  <Text style={{ fontWeight: "600" }}>
+    Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
+  </Text>
+
+  <Text>Bureau : {r.espaceId}</Text>
+  <Text>Créneaux : {r.slots.join(", ")}</Text>
+  <Text>Total : {r.total} €</Text>
+</View>
+
+          ))
+        )}
+
+        {/* ------------------ RÉSERVATIONS À VENIR ------------------ */}
+        <Text style={styles.sectionTitle}>Prochaines réservations</Text>
+
+        {upcoming.length === 0 ? (
+          <Text style={styles.emptyText}>Aucune réservation à venir.</Text>
+        ) : (
+          upcoming.map((r) => (
+            <View key={r.id} style={styles.resaCard}>
+  <Text style={styles.resaTitle}>{r.date}</Text>
+
+  <Text style={{ fontWeight: "600" }}>
+    Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
+  </Text>
+
+  <Text>Créneaux : {r.slots.join(", ")}</Text>
+  <Text>Total : {r.total} €</Text>
+</View>
+          ))
+        )}
+
+        {/* ------------------ BOUTONS ACTION ------------------ */}
         <View style={styles.buttonsContainer}>
           <Pressable
             style={styles.button}
@@ -58,45 +186,20 @@ export default function HomeEntrepriseScreen() {
             <Text style={styles.buttonText}>Publier un nouvel espace</Text>
           </Pressable>
 
-          <Pressable style={styles.button} onPress={() => router.push("/entreprise/gerer_annonces")}>
+          <Pressable
+            style={styles.button}
+            onPress={() => router.push("/entreprise/gerer_annonces")}
+          >
             <Text style={styles.buttonText}>Gérer mes annonces</Text>
           </Pressable>
 
-          <Pressable style={styles.button}>
-            <Text style={styles.buttonText}>
-              Passez en Premium pour{"\n"}mettre vos annonces en avant
-            </Text>
+          <Pressable
+            style={styles.button}
+            onPress={() => router.push("/entreprise/mes_reservations")}>
+            <Text style={styles.buttonText}>Toutes les réservations</Text>
           </Pressable>
         </View>
 
-        {/* MES BUREAUX */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mes bureaux</Text>
-
-          {loading ? (
-            <ActivityIndicator size="large" color="#3E7CB1" />
-          ) : espaces.length === 0 ? (
-            <Text style={styles.emptyText}>Aucune annonce publiée.</Text>
-          ) : (
-            <View style={styles.grid}>
-              {espaces.map((espace) => (
-                <Pressable
-                  key={espace.id}
-                  style={styles.officeCard}
-                  onPress={() =>router.push(`/entreprise/details_espace/${espace.id}`)
-                  }
-                >
-                  <Image
-                    source={{ uri: espace.images?.[0] }}
-                    style={styles.officeImage}
-                  />
-                  <Text style={styles.officeText}>{espace.localisation}</Text>
-                  <Text style={styles.officeText}>{espace.prix} €/h</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
       </ScrollView>
 
       <BottomNavBarEntreprise activeTab="menu" />
@@ -105,82 +208,81 @@ export default function HomeEntrepriseScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#EEF3F8",
-  },
+  container: { flex: 1, backgroundColor: "#EEF3F8" },
 
-  scrollContent: {
-    paddingVertical: 20,
-    paddingHorizontal: 20, // ← PLUS LARGE
+  scrollContent: { 
+    padding: 20 ,
+    paddingBottom: 120,
   },
 
   logo: {
     width: 200,
-    height: 90,
+    height: 80,
     alignSelf: "center",
-    marginTop: 20,
     marginBottom: 20,
   },
 
-  buttonsContainer: {
-    width: "100%", // ← PREND TOUTE LA LARGEUR
-    gap: 16,
-    marginBottom: 40,
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginTop: 15,
+    marginBottom: 10,
   },
 
-  button: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 14,
-    paddingVertical: 18,
-    width: "100%", // ← LARGE
+  /* KPI */
+  kpiRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  kpiCard: {
+    width: "30%",
+    backgroundColor: "#fff",
+    padding: 16,
+    borderRadius: 12,
     alignItems: "center",
   },
-
-  buttonText: {
-    fontSize: 16,
-    color: "#000",
-    textAlign: "center",
-  },
-
-  section: {
-    width: "100%", // ← LARGEUR TOTALE
-  },
-
-  sectionTitle: {
+  kpiValue: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#000",
-    marginBottom: 16,
+    marginBottom: 6,
+    color: "#3E7CB1",
   },
-
-  emptyText: {
+  kpiLabel: {
     textAlign: "center",
-    marginTop: 10,
+    fontSize: 12,
     color: "#555",
   },
 
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
+  /* Reservations */
+  resaCard: {
+    backgroundColor: "#fff",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  resaTitle: {
+    fontWeight: "700",
+    marginBottom: 4,
   },
 
-  officeCard: {
-    width: "48%", // ← PLUS LARGE
-    marginBottom: 24,
+  emptyText: {
+    color: "#555",
+    marginBottom: 10,
   },
 
-  officeImage: {
-    width: "100%",
-    height: 130, // ← PLUS GRAND
+  /* Buttons */
+  buttonsContainer: {
+    marginTop: 20,
+    gap: 16,
+  },
+  button: {
     backgroundColor: "#D9D9D9",
     borderRadius: 12,
-    marginBottom: 6,
+    paddingVertical: 16,
+    alignItems: "center",
   },
-
-  officeText: {
-    color: "#000",
-    fontSize: 14,
+  buttonText: {
+    fontSize: 16,
   },
 });

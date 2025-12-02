@@ -1,37 +1,148 @@
-// app/user/home_utilisateur.tsx
-import { useRouter } from "expo-router";
-import { collection, getDocs } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
+import { useEffect, useState } from "react";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import BottomNavBar from "../../components/BottomNavBar";
-import { db } from "../../firebaseConfig";
+import { auth, db } from "../../firebaseConfig";
 
 export default function HomeUtilisateur() {
+  const [nextReservation, setNextReservation] = useState<any>(null);
   const [espaces, setEspaces] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+  const [filteredEspaces, setFilteredEspaces] = useState<any[]>([]);
 
-  // 🔥 Charger les bureaux depuis Firestore
+  const [activeFilter, setActiveFilter] = useState("Tous");
+  const [search, setSearch] = useState("");
+
+  const [loading, setLoading] = useState(true);
+
+  /* ------------------ LOAD DATA ------------------ */
   useEffect(() => {
-    const fetchEspaces = async () => {
-      try {
-        const snap = await getDocs(collection(db, "espaces"));
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setEspaces(list);
-      } catch (e) {
-        console.log("Erreur Firestore :", e);
-      } finally {
-        setLoading(false);
+    const loadData = async () => {
+      const userId = auth.currentUser?.uid;
+
+      /* ---- 1) Prochaine réservation ---- */
+      if (userId) {
+        const q = query(
+          collection(db, "reservations"),
+          where("userId", "==", userId),
+          orderBy("date", "asc"),
+          limit(1)
+        );
+
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const r = snap.docs[0].data();
+
+          const espaceSnap = await getDoc(doc(db, "espaces", r.espaceId));
+          const espace = espaceSnap.exists() ? espaceSnap.data() : null;
+
+          setNextReservation({
+            id: snap.docs[0].id,
+            ...r,
+            espace,
+          });
+        }
       }
+
+      /* ---- 2) Espaces disponibles ---- */
+      const eSnap = await getDocs(collection(db, "espaces"));
+      const list = eSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      setEspaces(list);
+      setFilteredEspaces(list);
+
+      setLoading(false);
     };
 
-    fetchEspaces();
+    loadData();
   }, []);
+
+  /* ------------------ APPLY FILTERS ------------------ */
+  const applyFilters = async (newFilter: string, newSearch: string) => {
+  let result = [...espaces];
+
+  /* ---------- 1) IF POPULAIRE : CALCULER HEURES RÉSERVÉES ---------- */
+  if (newFilter === "Populaires") {
+    // Charger toutes les réservations
+    const rSnap = await getDocs(collection(db, "reservations"));
+    const reservations = rSnap.docs.map((d) => d.data());
+
+    // Calcul total heures réservées par espace
+    const hoursMap: Record<string, number> = {};
+
+    for (const r of reservations) {
+      if (!r.espaceId) continue;
+
+      const totalHours = (r.slots?.length || 0);
+
+      if (!hoursMap[r.espaceId]) hoursMap[r.espaceId] = 0;
+      hoursMap[r.espaceId] += totalHours;
+    }
+
+    // Ajouter popularityHours pour filtrer + trier
+    result = result
+      .map((e) => ({
+        ...e,
+        popularityHours: hoursMap[e.id] || 0,
+      }))
+      .sort((a, b) => b.popularityHours - a.popularityHours)
+      .slice(0, 2); // top 2
+  }
+
+  /* ---------- 2) NOUVEAUX LIEUX (moins de 72h) ---------- */
+  if (newFilter === "Nouveaux lieux") {
+    result = result.filter((e) => {
+      if (!e.createdAt) return false;
+      const date = e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt);
+      return Date.now() - date.getTime() < 72 * 3600 * 1000;
+    });
+  }
+
+  /* ---------- 3) RECHERCHE ---------- */
+  if (newSearch.trim().length > 0) {
+    result = result.filter((e) =>
+      (e.localisation || "")
+        .toLowerCase()
+        .includes(newSearch.toLowerCase())
+    );
+  }
+
+  setFilteredEspaces(result);
+};
+
+
+  /* ------------------ ON FILTER CLICK ------------------ */
+  const changeFilter = async (f: string) => {
+  setActiveFilter(f);
+  await applyFilters(f, search);
+};
+
+  /* ------------------ ON SEARCH ------------------ */
+  const handleSearch = (txt: string) => {
+    setSearch(txt);
+    applyFilters(activeFilter, txt);
+  };
 
   return (
     <View style={styles.container}>
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.content}>
 
         {/* LOGO */}
         <Image
@@ -40,145 +151,289 @@ export default function HomeUtilisateur() {
           resizeMode="contain"
         />
 
-        {/* FILTRES */}
-        <View style={styles.filtersRow}>
-          <Pressable style={styles.filterBtn}><Text style={styles.filterText}>Nouveaux lieux</Text></Pressable>
-          <Pressable style={styles.filterBtn}><Text style={styles.filterText}>Populaires</Text></Pressable>
-        </View>
+        {/* TITRE */}
+        <Text style={styles.hello}>
+          Bonjour {auth.currentUser?.displayName || "utilisateur"} !
+        </Text>
 
-        <View style={styles.filtersRow}>
-          <Pressable style={styles.filterBtnSmall}><Text style={styles.filterText}>Tous</Text></Pressable>
-          <Pressable style={styles.filterBtnSmall}><Text style={styles.filterText}>Réunions</Text></Pressable>
-          <Pressable style={styles.filterBtnSmall}><Text style={styles.filterText}>Bureaux</Text></Pressable>
-        </View>
+        {/* ---------------- PROCHAINE RÉSERVATION ---------------- */}
+        {nextReservation ? (
+          <View style={styles.nextResaBox}>
+            <Text style={styles.sectionTitle}>Ta prochaine réservation</Text>
 
-        {/* === BUREAUX DISPONIBLES === */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Bureaux disponibles</Text>
+            {nextReservation.espace?.images?.[0] && (
+              <Image
+                source={{ uri: nextReservation.espace.images[0] }}
+                style={styles.nextImage}
+              />
+            )}
 
-          {loading ? (
-            <ActivityIndicator size="large" color="#3E7CB1" />
-          ) : espaces.length === 0 ? (
-            <Text>Aucun bureau disponible pour l'instant.</Text>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalList}
+            <Text style={styles.espaceName}>{nextReservation.espace?.nom}</Text>
+            <Text style={styles.date}>Date: {nextReservation.date}</Text>
+            <Text style={styles.slots}>Heure: {nextReservation.slots.join(", ")}</Text>
+            <Text style={styles.price}>Prix: {nextReservation.total}€</Text>
+
+            <Pressable
+              style={styles.detailsBtn}
+              onPress={() =>
+                router.push(`/user/mes_reservations/${nextReservation.id}`)
+              }
             >
-              {espaces.map((espace) => (
-                <Pressable
-                  key={espace.id}
-                  style={styles.officeCard}
-                  onPress={() => router.push(`/user/details_espace/${espace.id}`)}
-                >
-                  <Image
-                    source={{ uri: espace.images?.[0] }}
-                    style={styles.officeImage}
-                  />
+              <Text style={styles.detailsBtnText}>Voir les détails</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.nextResaBox}>
+            <Text style={styles.sectionTitle}>Aucune réservation à venir</Text>
+            <Text style={{ marginBottom: 10 }}>Réserve ton premier bureau ci dessous !</Text>
+          </View>
+        )}
 
-                  <Text style={styles.officeText}>{espace.localisation}</Text>
-                  <Text style={styles.officeText}>{espace.prix} €/h</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
+        {/* ---------------- BOUTON MES RÉSERVATIONS ---------------- */}
+        <Pressable
+          style={styles.mainButton}
+          onPress={() => router.push("/user/mes_reservations/liste")}
+        >
+          <Text style={styles.mainButtonText}>Voir mes réservations</Text>
+        </Pressable>
+
+        {/* ---------------- TITLE ESPACES ---------------- */}
+        <Text style={styles.sectionTitleBureauxDisponibles}>Bureaux disponibles</Text>
+
+        {/* ---------------- BARRE DE RECHERCHE ---------------- */}
+        <TextInput
+          placeholder="Rechercher une localisation..."
+          placeholderTextColor="#777"
+          style={styles.searchInput}
+          value={search}
+          onChangeText={handleSearch}
+        />
+
+        {/* ---------------- FILTRES ---------------- */}
+        <View style={styles.filterRow}>
+          {["Tous", "Nouveaux lieux", "Populaires"].map((f) => (
+            <Pressable
+              key={f}
+              style={[
+                styles.filter,
+                activeFilter === f && styles.filterActive,
+              ]}
+              onPress={() => changeFilter(f)}
+            >
+              <Text
+                style={{
+                  fontWeight: activeFilter === f ? "700" : "400",
+                  color: activeFilter === f ? "#fff" : "#000",
+                }}
+              >
+                {f}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
-        {/* MAP */}
-        <Text style={styles.mapTitle}>Trouver sur la carte</Text>
+        {/* ---------------- LISTE DES ESPACES ---------------- */}
+        <ScrollView
+  horizontal
+  showsHorizontalScrollIndicator={false}
+  contentContainerStyle={styles.horizontalScroll}
+  style={{ width: "100%" }}
+>
+  {filteredEspaces.map((e) => (
+    <Pressable
+      key={e.id}
+      style={styles.espaceCardHorizontal}
+      onPress={() => router.push(`/user/details_espace/${e.id}`)}
+    >
+      {e.images?.[0] ? (
+        <Image source={{ uri: e.images[0] }} style={styles.espaceImageHorizontal} />
+      ) : (
+        <Image
+          source={require("../../assets/images/roomly-logo.png")}
+          style={styles.espaceImageHorizontal}
+        />
+      )}
+
+      <Text style={styles.espaceCardTitle}>{e.nom}</Text>
+      <Text style={styles.priceSmall}>{e.prix} €/h</Text>
+    </Pressable>
+  ))}
+</ScrollView>
+
+
+        {/* ---------------- MAP ---------------- */}
+        <View style={{height: 20}}/>
+        <Text style={styles.sectionTitle}>Trouver sur la carte</Text>
+
         <View style={styles.mapPlaceholder}>
-          <Text style={{ color: "#666" }}>Carte interactive ici</Text>
+          <Text style={{ color: "#777" }}>Carte interactive ici</Text>
         </View>
 
-        <View style={{ height: 120 }} />
+        <View style={{ height: 140 }} />
       </ScrollView>
 
-      {/* NAVIGATION BAS */}
       <BottomNavBar activeTab="menu" />
     </View>
   );
 }
 
+/* ------------------ STYLES ------------------ */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF3F8" },
+  content: { alignItems: "center", width: "100%" },
 
-  scrollContent: {
-    paddingTop: 40,
-    paddingBottom: 120,
+  logo: {
+    width: "80%",
+    height: 80,
+    marginTop: 25,
+    marginBottom: 10,
+    alignSelf: "center",
+  },
+
+  hello: { fontSize: 22, fontWeight: "700", marginBottom: 10 },
+
+  nextResaBox: {
+    width: "90%",
+    backgroundColor: "#fff",
+    padding: 15,
+    borderRadius: 15,
+    marginTop: 10,
+    marginBottom: 15,
     alignItems: "center",
   },
 
-  logo: { width: 180, height: 90, marginBottom: 20 },
-
-  /* FILTRES */
-  filtersRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 10,
+  sectionTitle: {
+    width: "90%",
+    fontSize: 18,
+    fontWeight: "700",
     marginBottom: 10,
-    width: "95%",
+    textAlign: "center",
   },
 
-  filterBtn: {
-    backgroundColor: "#D9D9D9",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 15,
+  sectionTitleBureauxDisponibles: {
+    width: "90%",
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 10,
   },
 
-  filterBtnSmall: {
-    backgroundColor: "#D9D9D9",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  nextImage: {
+    width: "100%",
+    height: 120,
     borderRadius: 12,
+    marginBottom: 10,
   },
 
-  filterText: { fontSize: 14, color: "#000" },
+  espaceName: { fontSize: 18, fontWeight: "700" },
+  date: { marginTop: 5 },
+  slots: { marginTop: 3 },
+  price: { marginTop: 3, fontWeight: "700" },
 
-  /* BUREAUX */
-  section: { width: "90%", marginTop: 20 },
+  detailsBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#3E7CB1",
+    borderRadius: 10,
+  },
+  detailsBtnText: { color: "#fff", fontWeight: "700" },
 
-  sectionTitle: { fontSize: 20, fontWeight: "700", marginBottom: 15 },
+  mainButton: {
+    width: "85%",
+    backgroundColor: "#3E7CB1",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  mainButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 
-  horizontalList: { gap: 15 },
-
-  officeCard: {
-    width: 120,
+  /* Search */
+  searchInput: {
+    width: "90%",
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 8,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.07,
-    shadowRadius: 4,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    marginBottom: 12,
   },
 
-  officeImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 10,
-    backgroundColor: "#D9D9D9",
-    marginBottom: 5,
-  },
-
-  officeText: { fontSize: 13, color: "#333" },
-
-  /* MAP */
-  mapTitle: {
-    fontSize: 20,
-    fontWeight: "700",
+  /* Filters */
+  filterRow: {
+    flexDirection: "row",
+    justifyContent: "center",
     width: "90%",
-    marginTop: 10,
-    marginBottom: 10,
+    marginBottom: 15,
   },
+  filter: {
+    backgroundColor: "#ddd",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  filterActive: {
+    backgroundColor: "#3E7CB1",
+  },
+
+  /* Espaces grid */
+  espacesGrid: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-around",
+    flexWrap: "wrap",
+  },
+
+  espaceCard: {
+    width: "42%",
+    backgroundColor: "#fff",
+    padding: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 15,
+  },
+
+  espaceImage: {
+    width: "100%",
+    height: 90,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+
+  espaceCardTitle: { fontWeight: "700", marginBottom: 3 },
+  priceSmall: { fontWeight: "700", color: "#3E7CB1" },
 
   mapPlaceholder: {
     width: "90%",
-    height: 200,
-    backgroundColor: "#D9D9D9",
-    borderRadius: 10,
+    height: 170,
+    backgroundColor: "#dcdcdc",
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
+    marginBottom: 20,
   },
+  horizontalScroll: {
+  paddingLeft: 15,
+  paddingRight: 10,
+},
+
+espaceCardHorizontal: {
+  width: 160,
+  backgroundColor: "#fff",
+  padding: 10,
+  borderRadius: 12,
+  marginRight: 12,
+  alignItems: "center",
+},
+
+espaceImageHorizontal: {
+  width: "100%",
+  height: 100,
+  borderRadius: 10,
+  marginBottom: 8,
+},
+
 });

@@ -1,22 +1,25 @@
 // app/user/reserver/[id].tsx
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    serverTimestamp,
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import BottomNavBar from "../../../components/BottomNavBar";
 import { auth, db } from "../../../firebaseConfig";
@@ -28,24 +31,20 @@ export default function ReserverEspace() {
   const [loading, setLoading] = useState(true);
   const [espace, setEspace] = useState<any>(null);
 
-  // Calendar states
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [slots, setSlots] = useState<string[]>([]);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
 
-  // 🔥 Liste des réservations existantes
   const [reservations, setReservations] = useState<any[]>([]);
 
   /* ---------------------- LOAD ESPACE + RESERVATIONS ---------------------- */
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // espace
         const snap = await getDoc(doc(db, "espaces", id as string));
         if (snap.exists()) setEspace(snap.data());
 
-        // réservations
         const rSnap = await getDocs(collection(db, "reservations"));
         const list = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setReservations(list);
@@ -65,12 +64,12 @@ export default function ReserverEspace() {
     );
   }
 
-  /* ----------- NORMALISATION DISPONIBILITÉS ENTREPRISE ----------- */
+  /* ----------- NORMALISATION DISPONIBILITÉS ----------- */
   const disponibilites = espace.timeSlots || [];
 
   const normalizedDispo = disponibilites.map((d: any) => {
     const date = new Date(d.dateISO);
-    const formatted = date.toISOString().slice(0, 10); // "2025-12-20"
+    const formatted = date.toISOString().slice(0, 10);
     return {
       date: formatted,
       start: d.start,
@@ -78,7 +77,7 @@ export default function ReserverEspace() {
     };
   });
 
-  /* ----------- CALCUL CALENDRIER ----------- */
+  /* ----------- CALENDRIER ----------- */
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
 
@@ -95,37 +94,36 @@ export default function ReserverEspace() {
     setSelectedSlots([]);
   };
 
-  /* ----------- CRENEAUX DÉJA RÉSERVÉS ----------- */
+  /* ----------- SLOTS DÉJA RÉSERVÉS ----------- */
   const takenSlotsForDate = (date: string) => {
     return reservations
       .filter((r) => r.espaceId === id && r.date === date)
       .flatMap((r) => r.slots);
   };
 
-  /* ---------------------- CRENEAUX ---------------------- */
-  const selectDate = (date: string) => {
-    setSelectedDate(date);
-    setSelectedSlots([]);
-
+  const buildSlotsForDate = (date: string): string[] => {
     const found = normalizedDispo.find((d: any) => d.date === date);
-    if (!found) return setSlots([]);
+    if (!found) return [];
 
     const result: string[] = [];
     let start = parseInt(found.start.split(":")[0]);
     const end = parseInt(found.end.split(":")[0]);
 
     while (start < end) {
-      const next = start + 1;
-      result.push(`${start}:00 - ${next}:00`);
+      result.push(`${start}:00 - ${start + 1}:00`);
       start++;
     }
-    setSlots(result);
+    return result;
+  };
+
+  const selectDate = (date: string) => {
+    setSelectedDate(date);
+    setSelectedSlots([]);
+    setSlots(buildSlotsForDate(date));
   };
 
   const toggleSlot = (slot: string) => {
-    // empêche de cliquer un créneau déjà pris
     if (selectedDate && takenSlotsForDate(selectedDate).includes(slot)) return;
-
     if (selectedSlots.includes(slot)) {
       setSelectedSlots((prev) => prev.filter((s) => s !== slot));
     } else {
@@ -135,21 +133,75 @@ export default function ReserverEspace() {
 
   const totalPrice = selectedSlots.length * parseFloat(espace.prix || 0);
 
-  /* ---------------------- ENREGISTRER LA RÉSERVATION ---------------------- */
+  /* ---------------------- ENREGISTRER + THREAD ---------------------- */
   const handleReservation = async () => {
     try {
       if (!selectedDate || selectedSlots.length === 0) return;
 
+      const idStr = String(id);
       const total = selectedSlots.length * parseFloat(espace.prix || 0);
 
+      const espaceSnap = await getDoc(doc(db, "espaces", idStr));
+      const espaceData = espaceSnap.data();
+
+      /* 🔥 Charger le user */
+      const userSnap = await getDoc(doc(db, "users", auth.currentUser?.uid || ""));
+      const userData = userSnap.exists() ? userSnap.data() : null;
+
+      /* 🔥 Charger l’entreprise */
+      const entrepriseSnap = await getDoc(doc(db, "users", espaceData?.uid || ""));
+      const entrepriseData = entrepriseSnap.exists() ? entrepriseSnap.data() : null;
+
+      /* ----------------- AJOUT RÉSERVATION ----------------- */
       const docRef = await addDoc(collection(db, "reservations"), {
-        espaceId: id,
+        espaceId: idStr,
+        entrepriseId: espaceData?.uid || null,
         userId: auth.currentUser?.uid || "anonymous",
         date: selectedDate,
         slots: selectedSlots,
-        total: total,
+        total,
         createdAt: serverTimestamp(),
       });
+
+      /* ----------------- THREAD ----------------- */
+      const threadsRef = collection(db, "threads");
+
+      const q = query(
+        threadsRef,
+        where("userId", "==", auth.currentUser?.uid),
+        where("entrepriseId", "==", espaceData?.uid),
+        where("espaceId", "==", idStr)
+      );
+
+      const threadSnap = await getDocs(q);
+
+      if (threadSnap.empty) {
+        // 🚀 Nouveau thread
+        await addDoc(threadsRef, {
+          userId: auth.currentUser?.uid,
+          userName: userData?.name || userData?.email || "Utilisateur",
+
+          entrepriseId: espaceData?.uid,
+          entrepriseNom: entrepriseData?.name || entrepriseData?.email || "Entreprise",
+
+          espaceId: idStr,
+          espaceNom: espaceData?.nom || "Espace",
+
+          lastMessage: "Nouvelle réservation effectuée",
+          updatedAt: Date.now(),
+
+          unreadEntreprise: true,
+          unreadUser: false,
+        });
+      } else {
+        // ✏️ Mise à jour
+        const threadDoc = threadSnap.docs[0].ref;
+        await updateDoc(threadDoc, {
+          lastMessage: "Nouvelle réservation effectuée",
+          updatedAt: Date.now(),
+          unreadEntreprise: true,
+        });
+      }
 
       router.push(`/user/reservation_confirmee/${docRef.id}`);
     } catch (e) {
@@ -162,14 +214,24 @@ export default function ReserverEspace() {
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
 
-        {/* LOGO */}
         <Image
           source={require("../../../assets/images/roomly-logo.png")}
           style={styles.logo}
           resizeMode="contain"
         />
 
-        <Text style={styles.title}>Disponibilités du local</Text>
+        {/* HEADER */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backIcon}>‹</Text>
+          </Pressable>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.title}>Disponibilités du local</Text>
+          </View>
+
+          <View style={{ width: 32 }} />
+        </View>
 
         {/* CALENDRIER */}
         <View style={styles.calendarContainer}>
@@ -210,17 +272,26 @@ export default function ReserverEspace() {
               const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
               const isAvailable = availableDates.includes(dateStr);
+
+              const allSlots = isAvailable ? buildSlotsForDate(dateStr) : [];
+              const taken = takenSlotsForDate(dateStr);
+              const isFullyBooked =
+                isAvailable &&
+                allSlots.length > 0 &&
+                allSlots.every((s) => taken.includes(s));
+
               const isSelected = selectedDate === dateStr;
 
               return (
                 <Pressable
                   key={day}
-                  onPress={() => isAvailable && selectDate(dateStr)}
+                  onPress={() => isAvailable && !isFullyBooked && selectDate(dateStr)}
                   style={[
                     styles.day,
-                    isAvailable && { backgroundColor: "#CDECCE" },
-                    !isAvailable && { backgroundColor: "#F4D1D1" },
-                    isSelected && { backgroundColor: "#8ED0A4" },
+                    !isAvailable && { backgroundColor: "#F4D1D1" }, // Pas proposé
+                    isAvailable && !isFullyBooked && { backgroundColor: "#CDECCE" }, // Disponible
+                    isFullyBooked && { backgroundColor: "#F4A7A7" }, // 🔴 Tout réservé
+                    isSelected && !isFullyBooked && { backgroundColor: "#8ED0A4" },
                   ]}
                 >
                   <Text style={styles.dayText}>{day}</Text>
@@ -248,11 +319,11 @@ export default function ReserverEspace() {
                   style={[
                     styles.slot,
                     selected && { backgroundColor: "#CDECCE" },
-                    taken && { backgroundColor: "#F4A7A7" }, // 🔴 réservé
+                    taken && { backgroundColor: "#F4A7A7" },
                   ]}
                 >
                   <Text style={styles.slotText}>
-                    {slot} {taken ? "(pris)" : ""}
+                    {slot} {taken ? "(indisponible)" : ""}
                   </Text>
                 </Pressable>
               );
@@ -274,15 +345,24 @@ export default function ReserverEspace() {
             selectedSlots.length === 0 && { opacity: 0.4 },
           ]}
           disabled={selectedSlots.length === 0}
-          onPress={handleReservation}
+          onPress={() => {
+            router.push({
+              pathname: `/user/paiement/${id}`,
+              params: {
+                espaceId: id,
+                date: selectedDate!,
+                slots: JSON.stringify(selectedSlots),
+                total: totalPrice,
+              },
+            } as any);
+          }}
         >
-          <Text style={styles.confirmText}>Confirmer la réservation</Text>
+          <Text style={styles.confirmText}>Procéder au paiement</Text>
         </Pressable>
 
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* NAV BAR */}
       <BottomNavBar activeTab="menu" />
     </View>
   );
@@ -302,7 +382,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 15 },
+  title: { fontSize: 20, fontWeight: "700"},
 
   calendarContainer: {
     width: "90%",
@@ -386,4 +466,30 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
   },
+  header: {
+  width: "90%",
+  flexDirection: "row",
+  alignItems: "center",      // centre flèche + texte verticalement
+  justifyContent: "space-between",
+  marginTop: 10,
+  marginBottom: 15,          // l’espace sous le titre
+},
+
+backButton: {
+  width: 32,
+  height: 32,
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+backIcon: {
+  fontSize: 22,
+  fontWeight: "600",
+},
+
+headerCenter: {
+  flex: 1,
+  alignItems: "center",
+},
+
 });

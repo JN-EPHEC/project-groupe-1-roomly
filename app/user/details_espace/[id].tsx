@@ -1,20 +1,20 @@
 // app/user/details_espace/[id].tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import BottomNavBar from "../../../components/BottomNavBar";
-import { db } from "../../../firebaseConfig";
+import { auth, db } from "../../../firebaseConfig";
 
 const { width } = Dimensions.get("window");
 
@@ -49,6 +49,35 @@ export default function DetailsEspaceUtilisateur() {
       </View>
     );
   }
+
+  // ---------------------------------------------------
+  // 🔵 Fonction "Contacter" → crée un thread persistant
+  // ---------------------------------------------------
+  const handleContact = async () => {
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+
+      const threadId = `${uid}_${id}`;
+
+      await setDoc(
+        doc(db, "threads", threadId),
+        {
+          userId: uid,
+          espaceId: id,
+          espaceNom: espace.nom,
+          localisation: espace.localisation || "",
+          imageUrl: espace.images?.[0] || null,
+          lastMessageAt: new Date(),
+        },
+        { merge: true }
+      );
+
+      router.push("/user/messages_utilisateur");
+    } catch (error) {
+      console.log("Erreur handleContact:", error);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -107,12 +136,41 @@ export default function DetailsEspaceUtilisateur() {
             <Text style={styles.reserveText}>Réserver un créneau horaire</Text>
             <Ionicons name="calendar-outline" size={22} color="#fff" />
           </Pressable>
+
+          {/* BOUTON CONTACTER */}
+          <Pressable
+  style={styles.contactButton}
+  onPress={async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const threadId = `${uid}_${id}`;
+
+    await setDoc(
+      doc(db, "threads", threadId),
+      {
+        userId: uid,
+        espaceId: id,
+        espaceNom: espace.nom || "Bureau Roomly",     // 🔥 sécurité anti undefined
+        localisation: espace.localisation || "",
+        imageUrl: espace.images?.[0] || null,
+        lastMessageAt: new Date(),
+      },
+      { merge: true }
+    );
+
+    router.push("/user/messages_utilisateur");
+  }}
+>
+  <Text style={styles.contactText}>Contacter</Text>
+  <Ionicons name="chatbubble-ellipses-outline" size={22} color="#3E7CB1" />
+</Pressable>
+
         </View>
 
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* NAV BAR BAS */}
       <BottomNavBar activeTab="menu" />
     </View>
   );
@@ -195,6 +253,24 @@ const styles = StyleSheet.create({
 
   reserveText: {
     color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
+  contactButton: {
+    marginTop: 20,
+    borderWidth: 2,
+    borderColor: "#3E7CB1",
+    paddingVertical: 15,
+    borderRadius: 12,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  contactText: {
+    color: "#3E7CB1",
     fontSize: 17,
     fontWeight: "700",
   },

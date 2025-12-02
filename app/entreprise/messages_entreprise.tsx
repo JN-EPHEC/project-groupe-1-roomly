@@ -1,27 +1,100 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+import { useEffect, useState } from "react";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import BottomNavBarEntreprise from "../../components/BottomNavBarEntreprise";
+import { auth, db } from "../../firebaseConfig";
 
-export default function MessagesScreen() {
+export default function MessagesEntreprise() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
+  const [threads, setThreads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const messages = [
-    { id: 1, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: true },
-    { id: 2, user: "Daniel", bureau: "Bureau central + Bruxelles", time: "Il y a 1h", unread: true },
-    { id: 3, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: false },
-    { id: 4, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: false },
-    { id: 5, user: "Nom utilisateur", bureau: "Nom du bureau + localisation du bureau", time: "Il y a 1h", unread: false },
-  ];
+  useEffect(() => {
+    const loadThreads = async () => {
+      try {
+        const uid = auth.currentUser?.uid;
+        if (!uid) return;
 
-  // 🔍 Filtrage en fonction du texte tapé dans la barre
-  const filteredMessages = messages.filter((msg) =>
-    msg.user.toLowerCase().includes(search.toLowerCase())
+        // Récupérer toutes les conversations où l’entreprise est impliquée
+        const q = query(
+          collection(db, "threads"),
+          where("entrepriseId", "==", uid)
+        );
+
+        const snap = await getDocs(q);
+
+        const list: any[] = [];
+
+        for (const d of snap.docs) {
+          const data = d.data();
+
+          // Charger nom de l’utilisateur
+          let userName = "Utilisateur";
+          if (data.userId) {
+            const userSnap = await getDoc(doc(db, "users", data.userId));
+            if (userSnap.exists()) {
+              const u = userSnap.data();
+              userName = u.name || u.displayName || u.email || "Utilisateur";
+            }
+          }
+
+          // Récupérer la dernière phrase de la conversation
+          let lastMessage = "";
+          if (data.lastMessage) lastMessage = data.lastMessage;
+
+          list.push({
+            id: d.id,
+            userName,
+            lastMessage,
+            userId: data.userId,
+            bureauName: data.espaceNom,
+            unread: data.unreadEntreprise || false,
+            updatedAt: data.updatedAt || 0,
+          });
+        }
+
+        // Trier conversations par date DESC
+        list.sort((a, b) => b.updatedAt - a.updatedAt);
+
+        setThreads(list);
+      } catch (e) {
+        console.log("Erreur loading threads:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadThreads();
+  }, []);
+
+  const filtered = threads.filter(
+    (t) =>
+      t.userName.toLowerCase().includes(search.toLowerCase()) ||
+      t.bureauName?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+
         {/* Logo */}
         <Image
           source={require("../../assets/images/roomly-logo.png")}
@@ -31,7 +104,7 @@ export default function MessagesScreen() {
 
         {/* Barre de recherche */}
         <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={20} color="#555" style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={20} color="#555" />
           <TextInput
             style={styles.searchInput}
             placeholder="Rechercher un utilisateur..."
@@ -41,36 +114,47 @@ export default function MessagesScreen() {
           />
         </View>
 
-        {/* Titre */}
-        <Text style={styles.title}>Messages ({filteredMessages.length})</Text>
+        <Text style={styles.title}>Messages ({filtered.length})</Text>
 
-        {/* Liste des messages */}
-        {filteredMessages.map((msg) => (
-          <View
-            key={msg.id}
-            style={[styles.messageCard, msg.unread && styles.unreadMessage]}
-          >
-            <View style={styles.row}>
-              <View style={styles.avatar} />
-              <View style={styles.messageInfo}>
-                <Text style={styles.username}>{msg.user}</Text>
-                <Text style={styles.subtitle}>{msg.bureau}</Text>
+        {loading ? (
+          <Text style={{ marginTop: 20 }}>Chargement...</Text>
+        ) : filtered.length === 0 ? (
+          <Text style={{ marginTop: 20 }}>Aucune conversation.</Text>
+        ) : (
+          filtered.map((t) => (
+            <Pressable
+              key={t.id}
+              onPress={() => router.push(`/entreprise/messages/${t.id}`)}
+              style={[
+                styles.messageCard,
+                t.unread && styles.unreadMessage,
+              ]}
+            >
+              <View style={styles.row}>
+                <View style={styles.avatar} />
+                <View style={styles.messageInfo}>
+                  <Text style={styles.username}>{t.userName}</Text>
+                  <Text style={styles.subtitle}>
+                    {t.bureauName || "Bureau inconnu"}
+                  </Text>
+                  <Text
+                    style={{
+                      color: "#333",
+                      marginTop: 4,
+                      fontSize: 13,
+                    }}
+                  >
+                    {t.lastMessage || "Démarrer la conversation"}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.time}>{msg.time}</Text>
-            </View>
+            </Pressable>
+          ))
+        )}
 
-            <Image
-              source={require("../../assets/images/bureau_exemple.jpg")}
-              style={styles.officeImage}
-              resizeMode="cover"
-            />
-          </View>
-        ))}
-
-        <View style={{ height: 80 }} /> {/* espace bas pour la nav bar */}
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ✅ Barre de navigation en bas */}
       <BottomNavBarEntreprise activeTab="message" />
     </View>
   );
@@ -80,7 +164,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#EEF3F8",
-    alignItems: "center",
   },
   scrollContent: {
     alignItems: "center",
@@ -90,7 +173,6 @@ const styles = StyleSheet.create({
   logo: {
     width: 160,
     height: 80,
-    marginTop: 20,
     marginBottom: 10,
   },
   searchContainer: {
@@ -103,11 +185,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 15,
   },
-  searchIcon: {
-    marginRight: 8,
-  },
   searchInput: {
     flex: 1,
+    marginLeft: 8,
     fontSize: 14,
     color: "#000",
   },
@@ -119,15 +199,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   messageCard: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 10,
     width: "90%",
-    alignSelf: "center",
-    minWidth: "90%",
-    maxWidth: "90%",
+    backgroundColor: "#D9D9D9",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 12,
   },
   unreadMessage: {
     backgroundColor: "#BFD9F1",
@@ -135,39 +211,23 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 50,
+    width: 45,
+    height: 45,
+    borderRadius: 45,
     backgroundColor: "#000",
-    marginRight: 10,
+    marginRight: 12,
   },
   messageInfo: {
     flex: 1,
-    justifyContent: "center",
   },
   username: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#000",
-    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: "700",
   },
   subtitle: {
     fontSize: 13,
-    color: "#333",
-    flexShrink: 1,
-  },
-  time: {
-    fontSize: 12,
-    color: "#444",
-  },
-  officeImage: {
-    width: 90,
-    height: 60,
-    borderRadius: 6,
-    marginTop: 8,
-    marginLeft: 50,
+    color: "#555",
   },
 });

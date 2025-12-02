@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -51,6 +51,10 @@ export default function SignupScreen() {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(auth.currentUser!, {
+  displayName: fullName,  // <-- le nom complet entré dans le formulaire
+});
+
       const user = userCredential.user;
 
       console.log("✅ Compte créé dans Firebase:", user.uid);
@@ -58,6 +62,8 @@ export default function SignupScreen() {
       await setDoc(doc(db, "users", user.uid), {
         email: email,
         type: "utilisateur",
+        name: fullName,
+        createdAt: new Date (),
       });
 
       console.log("✅ Données Firestore enregistrées pour:", email);
