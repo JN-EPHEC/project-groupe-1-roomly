@@ -5,32 +5,52 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type BottomNavBarProps = {
-  activeTab: "menu" | "message" | "favoris" | "settings" | "profile";
+  activeTab: "menu" | "message" | "reservations" | "profile";
 };
 
 export default function BottomNavBar({ activeTab }: BottomNavBarProps) {
   const router = useRouter();
 
   const tabs = [
-    { key: "menu", name: "home-outline", label: "Accueil", route: "/user/home_utilisateur" },
-    { key: "message", name: "chatbubble-outline", label: "Messages", route: "/user/messages_utilisateur" },
-    { key: "favoris", name: "heart-outline", label: "Favoris", route: "/user/favoris" },
-    { key: "settings", name: "build-outline", label: "Services", route: "/user/services" },
-    { key: "profile", name: "person-outline", label: "Profil", route: "/user/profile" },
+    {
+      key: "menu",
+      icon: "home-outline",
+      label: "Accueil",
+      route: "/user/home_utilisateur",
+    },
+    {
+      key: "message",
+      icon: "chatbubble-outline",
+      label: "Messages",
+      route: "/user/messages_utilisateur",
+    },
+    {
+      key: "reservations",
+      icon: "calendar-outline",
+      label: "Réservations",
+      route: "/user/mes_reservations/liste",
+    },
+    {
+      key: "profile",
+      icon: "person-outline",
+      label: "Profil",
+      route: "/user/profile",
+    },
   ];
 
   return (
     <View style={styles.navContainer}>
       {tabs.map((tab) => {
-        const isActive = tab.key === activeTab;
+        const active = tab.key === activeTab;
+
         return (
           <Pressable key={tab.key} style={styles.tab} onPress={() => router.push(tab.route as any)}>
             <Ionicons
-              name={tab.name as any}
+              name={tab.icon as any}
               size={28}
-              color={isActive ? "#F49B0B" : "#3E7CB1"}
+              color={active ? "#F49B0B" : "#3E7CB1"}
             />
-            <Text style={[styles.label, isActive && styles.labelActive]}>{tab.label}</Text>
+            <Text style={[styles.label, active && styles.labelActive]}>{tab.label}</Text>
           </Pressable>
         );
       })}
@@ -46,14 +66,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#EEF3F8",
     flexDirection: "row",
     justifyContent: "space-around",
-    alignItems: "center",
     paddingVertical: 8,
     borderTopWidth: 1,
     borderColor: "#D0D0D0",
   },
   tab: {
     alignItems: "center",
-    justifyContent: "center",
   },
   label: {
     fontSize: 12,

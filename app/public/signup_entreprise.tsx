@@ -59,6 +59,8 @@ export default function SignupEntreprise() {
         email: email,
         companyName: companyName || "Entreprise sans nom",
         type: "entreprise",
+        phone:"",
+        createdAt: new Date (),
       });
 
       console.log("✅ Données Firestore enregistrées pour:", email);

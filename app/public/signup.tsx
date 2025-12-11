@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
 export default function SignupScreen() {
-  const router = useRouter();
+  const router = useRouter(); 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -63,6 +63,7 @@ export default function SignupScreen() {
         email: email,
         type: "utilisateur",
         name: fullName,
+        phone: "",
         createdAt: new Date (),
       });
 
