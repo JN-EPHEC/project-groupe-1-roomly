@@ -3,6 +3,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -17,6 +19,7 @@ import { useRouter } from "expo-router";
 import { addDoc, collection } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { auth, db } from "../../firebaseConfig";
+import { geocodeAddress } from "../../utils/geocoding";
 
 type TimeSlot = {
   id: string;
@@ -34,7 +37,7 @@ export default function PublierEspaceScreen() {
   const [capacite, setCapacite] = useState("");
   const [prix, setPrix] = useState("");
   const [materiel, setMateriel] = useState("");
-  const [accessDetails, setAccessDetails] = useState(""); // 🔹 Nouveau
+  const [accessDetails, setAccessDetails] = useState("");
 
   const [images, setImages] = useState<(string | null)[]>([null, null, null]);
 
@@ -42,6 +45,8 @@ export default function PublierEspaceScreen() {
   const [dateInput, setDateInput] = useState("");
   const [startTimeInput, setStartTimeInput] = useState("");
   const [endTimeInput, setEndTimeInput] = useState("");
+
+  const [publishing, setPublishing] = useState(false);
 
   // ---------------------- IMAGES ----------------------
   const pickImage = async (index: number) => {
@@ -80,7 +85,6 @@ export default function PublierEspaceScreen() {
         urls.push(url);
       }
     }
-
     return urls;
   };
 
@@ -103,7 +107,6 @@ export default function PublierEspaceScreen() {
       "Samedi",
     ];
     const jour = dayNames[date.getDay()];
-
     const formattedDisplay = `${jour} ${dayStr}/${monthStr}/${yearStr}`;
 
     const newSlot: TimeSlot = {
@@ -128,18 +131,35 @@ export default function PublierEspaceScreen() {
   const publierAnnonce = async () => {
     try {
       if (!auth.currentUser) return alert("Vous devez être connecté.");
+      if (!localisation.trim()) return alert("La localisation est obligatoire.");
 
+      setPublishing(true);
+
+      // 1) upload images
       const urls = await uploadImages();
 
+      // 2) geocode localisation -> latitude/longitude
+      const coords = await geocodeAddress(localisation);
+      if (!coords) {
+        Alert.alert(
+          "Localisation introuvable",
+          "Google n’a pas trouvé cette adresse/ville. Essaie un format plus précis (ex: '25 Rue X, Bruxelles')."
+        );
+        return;
+      }
+
+      // 3) write firestore
       await addDoc(collection(db, "espaces"), {
         uid: auth.currentUser.uid,
         nom: description.substring(0, 20) || "Espace",
         description,
         localisation,
+        latitude: coords.lat,
+        longitude: coords.lng,
         capacite,
         prix,
         materiel,
-        accessDetails,   // 🔹 Enregistré ici
+        accessDetails,
         images: urls,
         timeSlots,
         createdAt: new Date(),
@@ -147,11 +167,13 @@ export default function PublierEspaceScreen() {
         type: "bureau",
       });
 
-      alert("Annonce publiée !");
+      Alert.alert("OK", "Annonce publiée !");
       router.push("/entreprise/home_entreprise");
     } catch (e) {
       console.log("❌ Erreur publication:", e);
-      alert("Erreur lors de la publication.");
+      Alert.alert("Erreur", "Erreur lors de la publication.");
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -196,6 +218,7 @@ export default function PublierEspaceScreen() {
           style={styles.input}
           value={localisation}
           onChangeText={setLocalisation}
+          placeholder="Ex: 10 Rue de l'EPHEC, 1348 Ottignies"
         />
 
         <Text style={styles.label}>Capacité</Text>
@@ -223,14 +246,13 @@ export default function PublierEspaceScreen() {
           multiline
         />
 
-        {/* 🔹 NOUVEAU CHAMP DÉTAILS D’ACCÈS */}
         <Text style={styles.label}>Détails d’accès / instructions</Text>
         <TextInput
           style={styles.inputLarge}
           value={accessDetails}
           onChangeText={setAccessDetails}
           placeholder={
-            "Code d’accès, étage, personne de contact...\n(ex : Code porte 1234, 4e étage, sonnez chez 'Cowork Loft')"
+            "Code d’accès, étage, personne de contact...\n(ex : Code porte 1234, 4e étage...)"
           }
           multiline
         />
@@ -286,15 +308,25 @@ export default function PublierEspaceScreen() {
           </View>
         )}
 
-        <Pressable style={styles.publishButton} onPress={publierAnnonce}>
-          <Text style={styles.publishText}>Publier</Text>
-          <Ionicons name="arrow-forward" size={20} color="#fff" />
+        <Pressable
+          style={[styles.publishButton, publishing && { opacity: 0.6 }]}
+          onPress={publierAnnonce}
+          disabled={publishing}
+        >
+          {publishing ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Text style={styles.publishText}>Publier</Text>
+              <Ionicons name="arrow-forward" size={20} color="#fff" />
+            </>
+          )}
         </Pressable>
 
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      <BottomNavBarEntreprise activeTab="settings" />
+      <BottomNavBarEntreprise activeTab="annonces" />
     </View>
   );
 }
@@ -304,7 +336,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF3F8" },
   scrollContent: { paddingTop: 20, paddingBottom: 140, alignItems: "center" },
   logo: { width: 200, height: 90, marginBottom: 20 },
-  sectionTitle: { width: "90%", fontSize: 18, fontWeight: "600", marginBottom: 10 },
+  sectionTitle: {
+    width: "90%",
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
   label: { width: "90%", fontSize: 16, fontWeight: "600", marginBottom: 6 },
   input: {
     width: "90%",
@@ -335,7 +372,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-  publishText: { color: "#fff", fontWeight: "600", fontSize: 18, marginRight: 8 },
+  publishText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 18,
+    marginRight: 8,
+  },
   imageRow: {
     width: "90%",
     flexDirection: "row",

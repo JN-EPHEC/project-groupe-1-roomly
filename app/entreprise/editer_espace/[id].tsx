@@ -3,25 +3,27 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { auth, db } from "../../../firebaseConfig";
 
 import * as ImagePicker from "expo-image-picker";
 import {
-    deleteObject,
-    getDownloadURL,
-    getStorage,
-    ref,
-    uploadBytes,
+  deleteObject,
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadBytes,
 } from "firebase/storage";
+import { geocodeAddress } from "../../../utils/geocoding";
 
 type TimeSlot = {
   id: string;
@@ -45,7 +47,6 @@ export default function EditerEspace() {
 
   const [images, setImages] = useState<(string | null)[]>([]);
   const [oldImages, setOldImages] = useState<string[]>([]);
-
   const MAX_IMAGES = 4;
 
   // Disponibilités
@@ -54,6 +55,8 @@ export default function EditerEspace() {
   const [startTimeInput, setStartTimeInput] = useState("");
   const [endTimeInput, setEndTimeInput] = useState("");
 
+  const [initialLocalisation, setInitialLocalisation] = useState("");
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -61,17 +64,17 @@ export default function EditerEspace() {
         const snap = await getDoc(refDoc);
 
         if (snap.exists()) {
-          const data = snap.data();
+          const data: any = snap.data();
 
-          setDescription(data.description);
-          setLocalisation(data.localisation);
-          setCapacite(data.capacite);
-          setPrix(data.prix);
-          setMateriel(data.materiel);
+          setDescription(data.description || "");
+          setLocalisation(data.localisation || "");
+          setInitialLocalisation(data.localisation || "");
+          setCapacite(data.capacite || "");
+          setPrix(data.prix || "");
+          setMateriel(data.materiel || "");
 
           setImages(data.images || []);
           setOldImages(data.images || []);
-
           setTimeSlots((data.timeSlots || []) as TimeSlot[]);
         }
       } catch (e) {
@@ -118,13 +121,13 @@ export default function EditerEspace() {
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
 
-      // image non modifiée (URL Firebase) → on garde
+      // URL Firebase => on garde
       if (img && img.startsWith("https")) {
         urls.push(img);
         continue;
       }
 
-      // image remplacée → supprimer ancienne si elle existait
+      // supprimer ancienne image si remplacée
       if (oldImages[i]) {
         try {
           const match = oldImages[i].match(/\/o\/(.+?)\?/);
@@ -138,7 +141,7 @@ export default function EditerEspace() {
         }
       }
 
-      // nouvelle image → upload
+      // upload nouvelle image
       if (img) {
         const response = await fetch(img);
         const blob = await response.blob();
@@ -158,7 +161,6 @@ export default function EditerEspace() {
   };
 
   // ---------------- DISPONIBILITÉS ----------------
-
   const addTimeSlot = () => {
     if (!dateInput || !startTimeInput || !endTimeInput) {
       alert("Remplis la date et les heures (début et fin).");
@@ -216,15 +218,43 @@ export default function EditerEspace() {
   };
 
   // ---------------- SAUVEGARDE ----------------
-
   const sauvegarder = async () => {
     setLoading(true);
     try {
       const uploadedImages = await uploadImages();
 
+      // Si localisation change => re-geocode
+      let extraCoords: any = {};
+      const locNow = (localisation || "").trim();
+      const locBefore = (initialLocalisation || "").trim();
+
+      if (locNow !== locBefore) {
+        if (!locNow) {
+          Alert.alert("Erreur", "La localisation ne peut pas être vide.");
+          setLoading(false);
+          return;
+        }
+
+        const coords = await geocodeAddress(locNow);
+        if (!coords) {
+          Alert.alert(
+            "Localisation introuvable",
+            "Google n’a pas trouvé cette adresse/ville. Essaie un format plus précis."
+          );
+          setLoading(false);
+          return;
+        }
+
+        extraCoords = {
+          latitude: coords.lat,
+          longitude: coords.lng,
+        };
+      }
+
       await updateDoc(doc(db, "espaces", id as string), {
         description,
         localisation,
+        ...extraCoords,
         capacite,
         prix,
         materiel,
@@ -232,13 +262,16 @@ export default function EditerEspace() {
         timeSlots,
       });
 
-      alert("Annonce mise à jour !");
+      setInitialLocalisation(localisation);
+
+      Alert.alert("OK", "Annonce mise à jour !");
       router.push("/entreprise/home_entreprise");
     } catch (e) {
       console.log(e);
-      alert("Erreur lors de la sauvegarde.");
+      Alert.alert("Erreur", "Erreur lors de la sauvegarde.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   if (loading) {
@@ -299,6 +332,7 @@ export default function EditerEspace() {
           style={styles.input}
           value={localisation}
           onChangeText={setLocalisation}
+          placeholder="Ex: 10 Rue ..., 1348 Ottignies"
         />
 
         <Text style={styles.label}>Capacité</Text>
@@ -310,11 +344,7 @@ export default function EditerEspace() {
         />
 
         <Text style={styles.label}>Prix</Text>
-        <TextInput
-          style={styles.input}
-          value={prix}
-          onChangeText={setPrix}
-        />
+        <TextInput style={styles.input} value={prix} onChangeText={setPrix} />
 
         <Text style={styles.label}>Matériel</Text>
         <TextInput
@@ -392,15 +422,8 @@ export default function EditerEspace() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#EEF3F8",
-  },
-
-  content: {
-    alignItems: "center",
-    paddingBottom: 80,
-  },
+  container: { flex: 1, backgroundColor: "#EEF3F8" },
+  content: { alignItems: "center", paddingBottom: 80 },
 
   loadingContainer: {
     flex: 1,
@@ -425,23 +448,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  imageContainer: {
-    width: "30%",
-    aspectRatio: 1,
-    position: "relative",
-  },
+  imageContainer: { width: "30%", aspectRatio: 1, position: "relative" },
 
-  uploadedImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 12,
-  },
+  uploadedImage: { width: "100%", height: "100%", borderRadius: 12 },
 
-  deleteBtn: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-  },
+  deleteBtn: { position: "absolute", top: -8, right: -8 },
 
   addImage: {
     width: "30%",
@@ -452,12 +463,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
 
-  label: {
-    width: "90%",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 6,
-  },
+  label: { width: "90%", fontSize: 16, fontWeight: "600", marginBottom: 6 },
 
   input: {
     width: "90%",
@@ -478,28 +484,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
-  buttonText: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "700",
-  },
+  buttonText: { color: "#fff", fontSize: 17, fontWeight: "700" },
 
-  // dispo
+
   helperText: {
     width: "90%",
     fontSize: 12,
     color: "#555",
     marginBottom: 6,
   },
-  slotInputsRow: {
-    width: "90%",
-  },
-  slotInput: {
-    width: "100%",
-  },
-  slotInputHalf: {
-    width: "48%",
-  },
+
+  slotInputsRow: { width: "90%" },
+  slotInput: { width: "100%" },
+  slotInputHalf: { width: "48%" },
+
   addSlotBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -507,15 +505,9 @@ const styles = StyleSheet.create({
     marginLeft: "5%",
     marginBottom: 10,
   },
-  addSlotText: {
-    color: "#3E7CB1",
-    marginLeft: 4,
-    fontWeight: "600",
-  },
-  slotList: {
-    width: "90%",
-    marginBottom: 20,
-  },
+  addSlotText: { color: "#3E7CB1", marginLeft: 4, fontWeight: "600" },
+
+  slotList: { width: "90%", marginBottom: 20 },
   slotRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -523,13 +515,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#DDD",
   },
-  slotMainText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-  },
-  slotSubText: {
-    fontSize: 13,
-    color: "#333",
-  },
+  slotMainText: { fontSize: 14, fontWeight: "600", color: "#000" },
+  slotSubText: { fontSize: 13, color: "#333" },
 });

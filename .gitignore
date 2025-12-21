@@ -44,3 +44,5 @@ app-example
 
 # firebase
 firebase_env.js
+
+.env
