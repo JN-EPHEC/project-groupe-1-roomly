@@ -1,10 +1,12 @@
 // app/user/reservation_confirmee/[id].tsx
+import * as MailComposer from "expo-mail-composer";
 import * as Print from "expo-print";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -47,6 +49,7 @@ export default function ReservationConfirmee() {
   }
 
   const userName = auth.currentUser?.displayName || "Client Roomly";
+  const userEmail = auth.currentUser?.email || "";
   const espaceNom = espace?.nom || "Espace Roomly";
   const espaceAdresse = espace?.localisation || "Adresse communiquée par email";
   const accessDetails =
@@ -65,7 +68,7 @@ export default function ReservationConfirmee() {
 
   const resaDateFR = formatDateFR(reservation.date);
 
-  // ---------- TEMPLATE B : style "Figma" simplifié ----------
+  /* ---------- TEMPLATE FACTURE ---------- */
   const buildInvoiceHTML_FigmaLike = () => {
     const today = new Date();
     const issueDate = today.toLocaleDateString("fr-FR");
@@ -92,9 +95,6 @@ export default function ReservationConfirmee() {
         th, td { border: 1px solid #ccc; padding: 6px 8px; }
         th { background-color: #f2f2f2; text-align: left; }
         .right { text-align: right; }
-        .mt-2 { margin-top: 8px; }
-        .mt-4 { margin-top: 16px; }
-        .mt-6 { margin-top: 24px; }
       </style>
     </head>
     <body>
@@ -185,117 +185,9 @@ export default function ReservationConfirmee() {
     `;
   };
 
-  // ---------- TEMPLATE C : version moderne / minimaliste ----------
-  const buildInvoiceHTML_Modern = () => {
-    const today = new Date();
-    const issueDate = today.toLocaleDateString("fr-FR");
-    const invoiceNumber = `INV-${today.getFullYear()}-${String(
-      (id as string) || ""
-    ).slice(0, 6)}`;
-
-    return `
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-      <meta charset="utf-8" />
-      <title>Facture Roomly</title>
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; margin: 32px; color: #1f2933; }
-        .brand { font-size: 26px; font-weight: 700; color: #2B6CB0; margin-bottom: 4px; }
-        .muted { color: #6b7b8f; font-size: 12px; }
-        .row { display: flex; justify-content: space-between; margin-top: 18px; }
-        .section-title { font-size: 15px; font-weight: 600; margin-top: 28px; margin-bottom: 8px; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th, td { padding: 8px 6px; }
-        th { text-align: left; border-bottom: 1px solid #e1e7ef; }
-        tr:nth-child(even) td { background-color: #f8fafc; }
-        .right { text-align: right; }
-        .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; background: #ebf8ff; color: #2B6CB0; }
-        .card { border-radius: 12px; border: 1px solid #e1e7ef; padding: 14px 16px; margin-top: 8px; }
-      </style>
-    </head>
-    <body>
-      <div class="brand">Roomly</div>
-      <div class="muted">Facture de réservation de bureau</div>
-
-      <div class="row">
-        <div class="muted">
-          <div><strong>Facture</strong> ${invoiceNumber}</div>
-          <div>Émise le ${issueDate}</div>
-        </div>
-        <div class="muted" style="text-align:right;">
-          <div><strong>${userName}</strong></div>
-          <div>${espaceAdresse}</div>
-        </div>
-      </div>
-
-      <div class="section-title">Réservation</div>
-      <div class="card">
-        <div><strong>${espaceNom}</strong></div>
-        <div class="muted">Date : ${resaDateFR}</div>
-        <div class="muted">Créneaux : ${reservation.slots.join(", ")}</div>
-        <div style="margin-top:6px;"><span class="badge">Payée via Roomly</span></div>
-      </div>
-
-      <div class="section-title">Détails de facturation</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th class="right">Quantité</th>
-            <th class="right">Tarif (€)</th>
-            <th class="right">Total (€)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Location – ${espaceNom}</td>
-            <td class="right">${reservation.slots.length}</td>
-            <td class="right">${Number(reservation.prix || 0) || "-"}</td>
-            <td class="right">${totalTTC.toFixed(2)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="section-title">Totals</div>
-      <table>
-        <tbody>
-          <tr>
-            <td>Sous-total HTVA</td>
-            <td class="right">${htva.toFixed(2)} €</td>
-          </tr>
-          <tr>
-            <td>TVA (21%)</td>
-            <td class="right">${tva.toFixed(2)} €</td>
-          </tr>
-          <tr>
-            <td><strong>Total TTC</strong></td>
-            <td class="right"><strong>${totalTTC.toFixed(2)} €</strong></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="section-title">Accès & contact</div>
-      <div class="card">
-        <div class="muted">${accessDetails}</div>
-      </div>
-
-      <div class="section-title">Infos</div>
-      <div class="muted">
-        Cette facture confirme votre réservation. Pour toute question, contactez support@roomly.be.
-      </div>
-    </body>
-    </html>
-    `;
-  };
-
-  // ---------- Génération & partage PDF ----------
   const generateInvoicePDF = async () => {
     try {
-      // 👉 CHOIX DU TEMPLATE ICI :
-       const html = buildInvoiceHTML_FigmaLike(); // Template B
-      // const html = buildInvoiceHTML_Modern();  // Template C
-
+      const html = buildInvoiceHTML_FigmaLike();
       const { uri } = await Print.printToFileAsync({ html });
       await Sharing.shareAsync(uri, {
         mimeType: "application/pdf",
@@ -306,6 +198,57 @@ export default function ReservationConfirmee() {
       alert("Erreur lors de la génération de la facture.");
     }
   };
+
+  /* ---------- ENVOI MAIL DE CONFIRMATION ---------- */
+
+  const sendConfirmationMail = async () => {
+    if (!userEmail) {
+      Alert.alert(
+        "Adresse e-mail manquante",
+        "Aucune adresse e-mail n’est liée à votre compte."
+      );
+      return;
+    }
+
+    const body = `
+Bonjour ${userName},
+
+Votre réservation Roomly a bien été confirmée.
+
+Espace : ${espaceNom}
+Adresse : ${espaceAdresse}
+Date : ${resaDateFR}
+Heures : ${reservation.slots.join(", ")}
+Montant payé : ${totalTTC.toFixed(2)} €
+
+Vous pouvez retrouver le détail de votre réservation et télécharger votre facture depuis l’app Roomly.
+
+Merci pour votre confiance,
+L’équipe Roomly
+`;
+
+    try {
+      const isAvailable = await MailComposer.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert(
+          "Mail non disponible",
+          "L’envoi d’e-mail n’est pas disponible sur cet appareil."
+        );
+        return;
+      }
+
+      await MailComposer.composeAsync({
+        recipients: [userEmail],
+        subject: "Confirmation de votre réservation Roomly",
+        body,
+      });
+    } catch (e) {
+      console.log("Erreur envoi mail :", e);
+      Alert.alert("Erreur", "Impossible de préparer l’e-mail de confirmation.");
+    }
+  };
+
+  /* ---------- RENDER ---------- */
 
   return (
     <View style={styles.container}>
@@ -325,6 +268,11 @@ export default function ReservationConfirmee() {
         {/* Lien pour télécharger la facture */}
         <Pressable onPress={generateInvoicePDF}>
           <Text style={styles.link}>Télécharger la facture</Text>
+        </Pressable>
+
+        {/* Bouton mail de confirmation */}
+        <Pressable onPress={sendConfirmationMail}>
+          <Text style={styles.link}>Envoyer un mail de confirmation</Text>
         </Pressable>
 
         {/* Bloc récapitulatif commande */}
@@ -366,6 +314,8 @@ export default function ReservationConfirmee() {
     </View>
   );
 }
+
+/* ---------- STYLES ---------- */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF3F8" },

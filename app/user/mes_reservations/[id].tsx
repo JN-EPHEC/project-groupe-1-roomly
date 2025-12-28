@@ -1,14 +1,17 @@
 // app/user/mes_reservations/[id].tsx
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Image,
+  KeyboardAvoidingView, Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import BottomNavBar from "../../../components/BottomNavBar";
 import { auth, db } from "../../../firebaseConfig";
@@ -24,6 +27,12 @@ export default function ReservationDetail() {
   const [reservation, setReservation] = useState<any>(null);
   const [espace, setEspace] = useState<any>(null);
 
+  // ⭐ Avis utilisateur
+  const [rating, setRating] = useState<number>(0);
+  const [comment, setComment] = useState("");
+  const [loadingReview, setLoadingReview] = useState(true);
+  const [existingReview, setExistingReview] = useState<any>(null);
+
   /* ---------------- LOAD DATA ---------------- */
   useEffect(() => {
     const load = async () => {
@@ -34,6 +43,17 @@ export default function ReservationDetail() {
 
       const espaceSnap = await getDoc(doc(db, "espaces", data.espaceId));
       if (espaceSnap.exists()) setEspace(espaceSnap.data());
+
+      // 🔸 Charger un éventuel avis existant
+      const reviewRef = doc(db, "reviewsEspaces", id as string);
+      const reviewSnap = await getDoc(reviewRef);
+      if (reviewSnap.exists()) {
+        const rData = reviewSnap.data() as any;
+        setExistingReview(rData);
+        setRating(rData.note || 0);
+        setComment(rData.comment || "");
+      }
+      setLoadingReview(false);
     };
 
     load();
@@ -50,24 +70,25 @@ export default function ReservationDetail() {
   /* ------------------------------------------------------------- */
   /* ---------------------- FACTURE PDF --------------------------- */
   /* ------------------------------------------------------------- */
-   const userName = auth.currentUser?.displayName || "Client Roomly";
-    const espaceNom = espace?.nom || "Espace Roomly";
-    const espaceAdresse = espace?.localisation || "Adresse communiquée par email";
-    const accessDetails =
-      espace?.accessDetails ||
-      "Les informations d’accès détaillées vous seront envoyées par email avant votre réservation.";
-  
-    const totalTTC = Number(reservation.total || 0);
-    const htva = +(totalTTC / 1.21).toFixed(2);
-    const tva = +(totalTTC - htva).toFixed(2);
-  
-    const formatDateFR = (d: string) => {
-      const date = new Date(d);
-      if (isNaN(date.getTime())) return d;
-      return date.toLocaleDateString("fr-FR");
-    };
-  
-    const resaDateFR = formatDateFR(reservation.date);
+  const userName = auth.currentUser?.displayName || "Client Roomly";
+  const espaceNom = espace?.nom || "Espace Roomly";
+  const espaceAdresse =
+    espace?.localisation || "Adresse communiquée par email";
+  const accessDetails =
+    espace?.accessDetails ||
+    "Les informations d’accès détaillées vous seront envoyées par email avant votre réservation.";
+
+  const totalTTC = Number(reservation.total || 0);
+  const htva = +(totalTTC / 1.21).toFixed(2);
+  const tva = +(totalTTC - htva).toFixed(2);
+
+  const formatDateFR = (d: string) => {
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return d;
+    return date.toLocaleDateString("fr-FR");
+  };
+
+  const resaDateFR = formatDateFR(reservation.date);
 
   const buildInvoiceHTML_FigmaLike = () => {
     const today = new Date();
@@ -223,9 +244,47 @@ export default function ReservationDetail() {
     }
   };
 
+  /* -------------------- SAUVEGARDE AVIS -------------------- */
+
+  const handleSaveReview = async () => {
+    if (!auth.currentUser?.uid) {
+      alert("Vous devez être connecté pour laisser un avis.");
+      return;
+    }
+    if (rating < 1 || rating > 5) {
+      alert("Choisissez une note entre 1 et 5 étoiles.");
+      return;
+    }
+
+    try {
+      const reviewRef = doc(db, "reviewsEspaces", id as string);
+      await setDoc(reviewRef, {
+        reservationId: id,
+        espaceId: reservation.espaceId,
+        userId: auth.currentUser.uid,
+        note: rating,
+        comment: comment.trim(),
+        createdAt: new Date(),
+      });
+
+      setExistingReview({
+        note: rating,
+        comment: comment.trim(),
+      });
+
+      alert("Merci pour votre avis !");
+    } catch (e) {
+      console.log("Erreur enregistrement avis :", e);
+      alert("Impossible d’enregistrer votre avis.");
+    }
+  };
+
   /* -------------------------- RENDER ---------------------------- */
 
   return (
+    <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         {/* HEADER */}
@@ -250,8 +309,6 @@ export default function ReservationDetail() {
           <Image source={{ uri: espace.images[0] }} style={styles.mainImage} />
         )}
 
-        {/* Lien facture */}
-    
         <Text style={styles.espaceName}>{espace.nom}</Text>
         <Text style={styles.address}>{espace.localisation}</Text>
 
@@ -261,15 +318,68 @@ export default function ReservationDetail() {
           <Text>🕒 {reservation.slots.join(", ")}</Text>
           <Text>💶 Total payé : {reservation.total}€</Text>
         </View>
+
         <View style={{ height: 20 }} />
+
+        {/* Lien facture */}
         <Pressable onPress={handleDownloadInvoice}>
           <Text style={styles.downloadLink}>Télécharger la facture</Text>
         </Pressable>
+
+        <View style={{ height: 20 }} />
+
+        {/* ------ AVIS UTILISATEUR SUR L'ESPACE ------ */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            {existingReview ? "Votre avis" : "Laisser un avis"}
+          </Text>
+
+          {loadingReview ? (
+            <Text>Chargement de vos avis...</Text>
+          ) : (
+            <>
+              {/* Étoiles */}
+              <View style={styles.starsRow}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Pressable key={i} onPress={() => setRating(i)}>
+                    <Ionicons
+                      name={i <= rating ? "star" : "star-outline"}
+                      size={24}
+                      color="#F5A623"
+                    />
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Commentaire */}
+              <TextInput
+                placeholder="Ajouter un commentaire (optionnel)"
+                value={comment}
+                onChangeText={setComment}
+                style={styles.commentInput}
+                multiline
+              />
+
+              <Pressable
+                style={styles.saveReviewButton}
+                onPress={handleSaveReview}
+              >
+                <Text style={styles.saveReviewText}>
+                  {existingReview
+                    ? "Mettre à jour mon avis"
+                    : "Enregistrer mon avis"}
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+
         <View style={{ height: 120 }} />
       </ScrollView>
 
       <BottomNavBar activeTab="menu" />
     </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -327,4 +437,32 @@ const styles = StyleSheet.create({
   },
 
   cardTitle: { fontWeight: "700", marginBottom: 10, fontSize: 16 },
+
+  // Avis
+  starsRow: {
+    flexDirection: "row",
+    marginBottom: 10,
+    gap: 4,
+  },
+  commentInput: {
+    marginTop: 6,
+    minHeight: 60,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 14,
+  },
+  saveReviewButton: {
+    marginTop: 10,
+    backgroundColor: "#3E7CB1",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  saveReviewText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
 });

@@ -11,92 +11,172 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-
+import React, { useState } from "react";
 import {
   Alert,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { WebView } from "react-native-webview";
 import { auth, db } from "../../../firebaseConfig";
+
+const PAYPAL_CLIENT_ID = process.env.EXPO_PUBLIC_PAYPAL_CLIENT_ID as string;
 
 export default function PaiementScreen() {
   const router = useRouter();
   const { espaceId, date, slots, total } = useLocalSearchParams();
 
-  const formattedSlots = JSON.parse(slots as string);
+  const formattedSlots: string[] = JSON.parse(slots as string);
+  const totalNumber = Number(total || 0);
 
-  /* --------------------- Mode démo : paiement + stockage --------------------- */
+  const [showPayPal, setShowPayPal] = useState(false);
 
-  const payerEnDemo = async () => {
-  try {
-    const espaceIdStr = String(espaceId); // 👈 obligatoire
+  /* ------------------------------------------------------------------ */
+  /*  LOGIQUE RÉSERVATION (Firestore + thread)                          */
+  /* ------------------------------------------------------------------ */
+  const finaliserReservation = async () => {
+    try {
+      const espaceIdStr = String(espaceId);
 
-    const espaceSnap = await getDoc(doc(db, "espaces", espaceIdStr));
-    const espaceData = espaceSnap.data();
+      const espaceSnap = await getDoc(doc(db, "espaces", espaceIdStr));
+      const espaceData = espaceSnap.data();
 
-    const docRef = await addDoc(collection(db, "reservations"), {
-      espaceId: espaceIdStr,
-      entrepriseId: espaceData?.uid || null,   // 👈 OK
-      userId: auth.currentUser?.uid || "anonymous",
-      date,
-      slots: formattedSlots,
-      total: Number(total),
-      createdAt: serverTimestamp(),
-    });
+      const currentUser = auth.currentUser;
 
-    /****************************
- *  MISE À JOUR / CREATION THREAD
- ****************************/
+      // 1) Création de la réservation
+      const docRef = await addDoc(collection(db, "reservations"), {
+        espaceId: espaceIdStr,
+        entrepriseId: espaceData?.uid || null,
+        userId: currentUser?.uid || "anonymous",
+        userEmail: currentUser?.email || null,
+        date,
+        slots: formattedSlots,
+        total: totalNumber,
+        createdAt: serverTimestamp(),
+        paymentStatus: "paid",
+        paymentProvider: "PayPal (sandbox)",
+      });
 
-// 1. Vérifier si un thread existe déjà entre user + entreprise + espace
-const threadsRef = collection(db, "threads");
-const q = query(
-  threadsRef,
-  where("userId", "==", auth.currentUser?.uid),
-  where("entrepriseId", "==", espaceData?.uid),
-  where("espaceId", "==", espaceId) // ou id selon ton fichier
-);
+      // 2) Thread de discussion
+      const threadsRef = collection(db, "threads");
+      const q = query(
+        threadsRef,
+        where("userId", "==", currentUser?.uid),
+        where("entrepriseId", "==", espaceData?.uid),
+        where("espaceId", "==", espaceIdStr)
+      );
 
-const threadSnap = await getDocs(q);
+      const threadSnap = await getDocs(q);
 
-if (threadSnap.empty) {
-  // ⭐ 2. Créer un nouveau thread
-  await addDoc(threadsRef, {
-    userId: auth.currentUser?.uid,
-    entrepriseId: espaceData?.uid,
-    espaceId: espaceId, // ou id
-    espaceNom: espaceData?.nom || "Espace",
-    lastMessage: "Nouvelle réservation effectuée", 
-    updatedAt: Date.now(),
-    unreadEntreprise: true,   // affichage en bleu côté entreprise
-    unreadUser: false,
-  });
-} else {
-  // ⭐ 3. Thread existe déjà → mise à jour
-  const threadDoc = threadSnap.docs[0].ref;
-  await updateDoc(threadDoc, {
-    lastMessage: "Nouvelle réservation effectuée",
-    updatedAt: Date.now(),
-    unreadEntreprise: true,
-  });
-}
+      if (threadSnap.empty) {
+        await addDoc(threadsRef, {
+          userId: currentUser?.uid,
+          entrepriseId: espaceData?.uid,
+          espaceId: espaceIdStr,
+          espaceNom: espaceData?.nom || "Espace",
+          lastMessage: "Nouvelle réservation effectuée",
+          updatedAt: Date.now(),
+          unreadEntreprise: true,
+          unreadUser: false,
+        });
+      } else {
+        const threadDoc = threadSnap.docs[0].ref;
+        await updateDoc(threadDoc, {
+          lastMessage: "Nouvelle réservation effectuée",
+          updatedAt: Date.now(),
+          unreadEntreprise: true,
+        });
+      }
 
+      router.push(`/user/reservation_confirmee/${docRef.id}`);
+    } catch (e) {
+      console.log("Erreur finalisation réservation :", e);
+      Alert.alert("Erreur", "Impossible de finaliser la réservation.");
+    }
+  };
 
-    router.push(`/user/reservation_confirmee/${docRef.id}`);
-  } catch (e) {
-    console.log("Erreur paiement démo :", e);
-    Alert.alert("Erreur", "Impossible de finaliser le paiement.");
+  /* ------------------------------------------------------------------ */
+  /*  HTML du bouton PayPal (sandbox) chargé dans WebView               */
+  /* ------------------------------------------------------------------ */
+
+  const paypalHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>PayPal Sandbox</title>
+        <script src="https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&currency=EUR"></script>
+        <style>
+          body { margin:0; padding:0; display:flex; justify-content:center; align-items:center; height:100vh; }
+        </style>
+      </head>
+      <body>
+        <div id="paypal-button-container"></div>
+        <script>
+          paypal.Buttons({
+            createOrder: function(data, actions) {
+              return actions.order.create({
+                purchase_units: [{
+                  amount: { value: '${totalNumber.toFixed(2)}' }
+                }]
+              });
+            },
+            onApprove: function(data, actions) {
+              return actions.order.capture().then(function(details) {
+                window.ReactNativeWebView.postMessage('SUCCESS');
+              });
+            },
+            onCancel: function (data) {
+              window.ReactNativeWebView.postMessage('CANCEL');
+            },
+            onError: function (err) {
+              window.ReactNativeWebView.postMessage('ERROR');
+            }
+          }).render('#paypal-button-container');
+        </script>
+      </body>
+    </html>
+  `;
+
+  /* ------------------------------------------------------------------ */
+  /*  Vue plein écran PayPal sur mobile                                 */
+  /* ------------------------------------------------------------------ */
+
+  if (showPayPal && Platform.OS !== "web") {
+    return (
+      <View style={{ flex: 1 }}>
+        <WebView
+          originWhitelist={["*"]}
+          source={{ html: paypalHtml }}
+          onMessage={async (event) => {
+            const msg = event.nativeEvent.data;
+            if (msg === "SUCCESS") {
+              setShowPayPal(false);
+              await finaliserReservation();
+            } else if (msg === "CANCEL") {
+              setShowPayPal(false);
+              Alert.alert("Paiement annulé");
+            } else if (msg === "ERROR") {
+              setShowPayPal(false);
+              Alert.alert("Erreur", "Erreur lors du paiement PayPal.");
+            }
+          }}
+        />
+      </View>
+    );
   }
-};
 
+  /* ------------------------------------------------------------------ */
+  /*  Écran normal : récap + boutons                                    */
+  /* ------------------------------------------------------------------ */
 
   return (
     <ScrollView style={styles.container}>
-      
       {/* Logo */}
       <Image
         source={require("../../../assets/images/roomly-logo.png")}
@@ -127,35 +207,60 @@ if (threadSnap.empty) {
 
       <View style={styles.row}>
         <Text style={styles.label}>Prix total</Text>
-        <Text style={styles.value}>{total} €</Text>
+        <Text style={styles.value}>{totalNumber.toFixed(2)} €</Text>
       </View>
 
-      {/* Boutons de paiement */}
+      {/* Boutons GPay / ApplePay (non implémentés) */}
       <Pressable
         style={styles.gpay}
-        onPress={() => console.log("Paiement Google Pay non implémenté")}
+        onPress={() => Alert.alert("Info", "Google Pay non implémenté (MVP).")}
       >
         <Text style={styles.gpayText}>Payer avec  G Pay</Text>
       </Pressable>
 
       <Pressable
         style={styles.applePay}
-        onPress={() => console.log("Paiement Apple Pay non implémenté")}
+        onPress={() => Alert.alert("Info", "Apple Pay non implémenté (MVP).")}
       >
         <Text style={styles.applePayText}>Payer avec  Pay</Text>
       </Pressable>
 
-      {/* Bouton de paiement démo */}
+      {/* PayPal sandbox */}
       <Pressable
-        style={styles.demoPay}
-        onPress={payerEnDemo}
+        style={styles.paypal}
+        onPress={() => {
+          if (!PAYPAL_CLIENT_ID) {
+            Alert.alert(
+              "Configuration manquante",
+              "EXPO_PUBLIC_PAYPAL_CLIENT_ID n’est pas défini dans le .env."
+            );
+            return;
+          }
+          if (Platform.OS === "web") {
+            Alert.alert(
+              "Non disponible",
+              "Le paiement PayPal est démontré sur l’application mobile (Android/iOS)."
+            );
+            return;
+          }
+          setShowPayPal(true);
+        }}
       >
-        <Text style={styles.demoPayText}>Payer (mode démo)</Text>
+        <Text style={styles.paypalText}>Payer avec PayPal (sandbox)</Text>
       </Pressable>
 
+      {/* Bouton de secours : mode démo direct */}
+      <Pressable
+        style={styles.demoPay}
+        onPress={finaliserReservation}
+      >
+        <Text style={styles.demoPayText}>Valider sans PayPal (mode démo)</Text>
+      </Pressable>
     </ScrollView>
   );
 }
+
+/* ---------------------- STYLES ---------------------- */
 
 const styles = StyleSheet.create({
   container: {
@@ -233,11 +338,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  paypal: {
+    backgroundColor: "#ffc439",
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 25,
+    alignItems: "center",
+  },
+
+  paypalText: {
+    color: "#111",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
   demoPay: {
     backgroundColor: "#3E7CB1",
     paddingVertical: 16,
     borderRadius: 12,
-    marginTop: 30,
+    marginTop: 20,
     alignItems: "center",
   },
 

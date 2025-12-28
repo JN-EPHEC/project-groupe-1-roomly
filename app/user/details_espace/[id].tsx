@@ -1,7 +1,15 @@
 // app/user/details_espace/[id].tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,13 +33,40 @@ export default function DetailsEspaceUtilisateur() {
   const [espace, setEspace] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // ⭐ Note moyenne + nombre d’avis pour cet espace
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [ratingCount, setRatingCount] = useState(0);
+
   useEffect(() => {
     const fetchEspace = async () => {
       try {
         if (!id) return;
+
+        // 1) Données de l’espace
         const refDoc = doc(db, "espaces", id as string);
         const snap = await getDoc(refDoc);
         if (snap.exists()) setEspace(snap.data());
+
+        // 2) Avis pour cet espace
+        const reviewsRef = collection(db, "reviewsEspaces");
+        const q = query(reviewsRef, where("espaceId", "==", id as string));
+        const reviewsSnap = await getDocs(q);
+
+        if (!reviewsSnap.empty) {
+          let total = 0;
+          reviewsSnap.forEach((d) => {
+            const data = d.data() as any;
+            if (typeof data.note === "number") {
+              total += data.note;
+            }
+          });
+          const count = reviewsSnap.size;
+          setRatingCount(count);
+          setAvgRating(total / count);
+        } else {
+          setRatingCount(0);
+          setAvgRating(null);
+        }
       } catch (err) {
         console.log("Erreur fetch espace utilisateur :", err);
       } finally {
@@ -51,7 +86,7 @@ export default function DetailsEspaceUtilisateur() {
   }
 
   // ---------------------------------------------------
-  // 🔵 Fonction "Contacter" → crée un thread persistant
+  // 🔵 Fonction "Contacter" → crée/merge un thread
   // ---------------------------------------------------
   const handleContact = async () => {
     try {
@@ -65,7 +100,7 @@ export default function DetailsEspaceUtilisateur() {
         {
           userId: uid,
           espaceId: id,
-          espaceNom: espace.nom,
+          espaceNom: espace.nom || "Bureau Roomly",
           localisation: espace.localisation || "",
           imageUrl: espace.images?.[0] || null,
           lastMessageAt: new Date(),
@@ -82,7 +117,6 @@ export default function DetailsEspaceUtilisateur() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-
         {/* RETOUR */}
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={26} color="#000" />
@@ -113,6 +147,25 @@ export default function DetailsEspaceUtilisateur() {
         <View style={styles.card}>
           <Text style={styles.title}>Détails de l’espace</Text>
 
+          {/* ⭐ Note moyenne */}
+          {avgRating !== null ? (
+            <View style={styles.ratingRow}>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Ionicons
+                  key={i}
+                  name={i <= Math.round(avgRating) ? "star" : "star-outline"}
+                  size={18}
+                  color="#F5A623"
+                />
+              ))}
+              <Text style={styles.ratingText}>
+                {avgRating.toFixed(1)}/5 ({ratingCount} avis)
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.ratingText}>Aucun avis pour le moment</Text>
+          )}
+
           <Text style={styles.label}>Description</Text>
           <Text style={styles.text}>{espace.description}</Text>
 
@@ -138,34 +191,14 @@ export default function DetailsEspaceUtilisateur() {
           </Pressable>
 
           {/* BOUTON CONTACTER */}
-          <Pressable
-  style={styles.contactButton}
-  onPress={async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-
-    const threadId = `${uid}_${id}`;
-
-    await setDoc(
-      doc(db, "threads", threadId),
-      {
-        userId: uid,
-        espaceId: id,
-        espaceNom: espace.nom || "Bureau Roomly",     // 🔥 sécurité anti undefined
-        localisation: espace.localisation || "",
-        imageUrl: espace.images?.[0] || null,
-        lastMessageAt: new Date(),
-      },
-      { merge: true }
-    );
-
-    router.push("/user/messages_utilisateur");
-  }}
->
-  <Text style={styles.contactText}>Contacter</Text>
-  <Ionicons name="chatbubble-ellipses-outline" size={22} color="#3E7CB1" />
-</Pressable>
-
+          <Pressable style={styles.contactButton} onPress={handleContact}>
+            <Text style={styles.contactText}>Contacter</Text>
+            <Ionicons
+              name="chatbubble-ellipses-outline"
+              size={22}
+              color="#3E7CB1"
+            />
+          </Pressable>
         </View>
 
         <View style={{ height: 120 }} />
@@ -223,8 +256,20 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: "700",
-    marginBottom: 20,
+    marginBottom: 12,
     color: "#000",
+  },
+
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 3,
+  },
+  ratingText: {
+    marginLeft: 6,
+    fontSize: 13,
+    color: "#555",
   },
 
   label: {

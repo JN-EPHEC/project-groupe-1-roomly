@@ -215,7 +215,7 @@ export default function HomeUtilisateur() {
         {/* PROCHAINE RÉSERVATION */}
         {nextReservation ? (
           <View style={styles.nextResaBox}>
-            <Text style={styles.sectionTitleCenter}>Ta prochaine réservation</Text>
+            <Text style={styles.sectionTitleCenter}>Votre prochaine réservation</Text>
 
             {nextReservation.espace?.images?.[0] && (
               <Image
