@@ -1,34 +1,36 @@
 // functions/src/index.ts
 
-import * as admin from "firebase-admin";
-import * as functions from "firebase-functions/v1";
-// ⬇️⬇️ IMPORTANT : utiliser l'import par défaut
 import sgMail from "@sendgrid/mail";
+import * as admin from "firebase-admin";
+import { defineSecret } from "firebase-functions/params";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 
 admin.initializeApp();
 
-// ================================
-// 🔑 Config SendGrid (SIMPLE)
-// ================================
-// ⚠️ Mets ici ta vraie clé SendGrid et ton email "from"
-const SENDGRID_KEY = "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"; // ex: "SG...."
+// Secret défini côté Firebase (PAS dans le code)
+const SENDGRID_KEY = defineSecret("SENDGRID_API_KEY");
+
+// Adresse d’expéditeur
 const SENDGRID_FROM = "no-reply@roomly.be";
 
-sgMail.setApiKey(SENDGRID_KEY);
-
-/**
- * 📧 Fonction déclenchée à chaque nouvelle réservation.
- * Trigger : création d'un document dans "reservations/{reservationId}"
- */
-export const sendReservationConfirmationEmail = functions.firestore
-  .document("reservations/{reservationId}")
-  .onCreate(async (snap, context) => {
-    const data = snap.data() as any;
-
-    if (!data) {
-      console.log("Pas de données dans le document, on annule.");
+// =====================================================
+// 📧 Envoi d'un mail à chaque nouvelle réservation
+// =====================================================
+export const sendReservationConfirmationEmail = onDocumentCreated(
+  {
+    document: "reservations/{reservationId}", // chemin Firestore
+    region: "us-central1",
+    secrets: [SENDGRID_KEY],
+  },
+  // ⚠️ 2e argument uniquement = le handler
+  async (event: any) => {
+    const snap = event.data;
+    if (!snap) {
+      console.log("Pas de document, on annule.");
       return;
     }
+
+    const data = snap.data() as any;
 
     const email = data.userEmail || data.email || null;
     const userName = data.userName || "Client Roomly";
@@ -37,11 +39,12 @@ export const sendReservationConfirmationEmail = functions.firestore
     const total = data.total ?? "-";
 
     if (!email) {
-      console.log(
-        "Aucune adresse email dans la réservation, email non envoyé."
-      );
+      console.log("Aucun email trouvé → pas d’envoi");
       return;
     }
+
+    // Récupère la clé secrète définie dans Firebase
+    sgMail.setApiKey(SENDGRID_KEY.value());
 
     const msg: sgMail.MailDataRequired = {
       to: email,
@@ -60,14 +63,12 @@ export const sendReservationConfirmationEmail = functions.firestore
 
     try {
       await sgMail.send(msg);
-      console.log("📧 Email de confirmation envoyé à", email);
+      console.log("📧 Email envoyé à", email);
     } catch (err: any) {
       console.error("Erreur lors de l’envoi de l’email SendGrid :", err);
       if (err.response?.body) {
-        console.error(
-            "Détail SendGrid :",
-            JSON.stringify(err.response.body, null, 2)
-        );
+        console.error("Détail SendGrid :", JSON.stringify(err.response.body));
       }
     }
-  });
+  }
+);
