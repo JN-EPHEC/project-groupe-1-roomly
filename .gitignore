@@ -46,3 +46,4 @@ app-example
 firebase_env.js
 
 .env
+.env.local
