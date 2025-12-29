@@ -33,6 +33,9 @@ type TimeSlot = {
   end: string;
 };
 
+// ✅ statut utilisé quand l’entreprise modifie son annonce
+const STATUS_ATTENTE = "en attente de validation";
+
 export default function EditerEspace() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -260,11 +263,18 @@ export default function EditerEspace() {
         materiel,
         images: uploadedImages,
         timeSlots,
+
+        // ✅ à chaque modification : retour en attente de validation
+        status: STATUS_ATTENTE,
+        motifRefus: "",
       });
 
       setInitialLocalisation(localisation);
 
-      Alert.alert("OK", "Annonce mise à jour !");
+      Alert.alert(
+        "OK",
+        "Annonce mise à jour et renvoyée pour validation par l’administrateur."
+      );
       router.push("/entreprise/home_entreprise");
     } catch (e) {
       console.log(e);
@@ -485,7 +495,6 @@ const styles = StyleSheet.create({
   },
 
   buttonText: { color: "#fff", fontSize: 17, fontWeight: "700" },
-
 
   helperText: {
     width: "90%",

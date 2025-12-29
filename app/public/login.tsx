@@ -37,7 +37,7 @@ export default function LoginScreen() {
       const userDoc = await getDoc(doc(db, "users", user.uid));
 
       if (userDoc.exists()) {
-        const userData = userDoc.data();
+        const userData = userDoc.data() as any;
         console.log("📄 Données Firestore :", userData);
 
         showToast("✅ Connexion réussie !", "success");
@@ -45,9 +45,11 @@ export default function LoginScreen() {
         // Redirection selon le type
         setTimeout(() => {
           if (userData.type === "entreprise") {
-            router.push("/entreprise/home_entreprise");
+            router.replace("/entreprise/home_entreprise");
+          } else if (userData.type === "admin") {
+            router.replace("/admin/admin_home");
           } else if (userData.type === "utilisateur") {
-            router.push("/user/home_utilisateur");
+            router.replace("/user/home_utilisateur");
           } else {
             showToast("Type d'utilisateur inconnu.", "error");
           }

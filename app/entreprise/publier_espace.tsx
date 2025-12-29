@@ -165,6 +165,7 @@ export default function PublierEspaceScreen() {
         createdAt: new Date(),
         popularity: 0,
         type: "bureau",
+        status: "en attente de validation",
       });
 
       Alert.alert("OK", "Annonce publiée !");

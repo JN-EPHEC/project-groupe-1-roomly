@@ -19,7 +19,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
 } from "react-native";
 import BottomNavBar from "../../components/BottomNavBar";
 import RoomlyMap from "../../components/RoomlyMap";
@@ -34,6 +34,7 @@ type Espace = {
   createdAt?: any;
   latitude?: number;
   longitude?: number;
+  status?: string; // ex: "en attente de validation"
 };
 
 type Region = {
@@ -88,7 +89,15 @@ export default function HomeUtilisateur() {
 
         /* ---- 2) Espaces disponibles ---- */
         const eSnap = await getDocs(collection(db, "espaces"));
-        const list = eSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        const rawList = eSnap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        }));
+
+        // 🔒 On cache les espaces encore en attente de validation
+        const list = rawList.filter(
+          (e: any) => e.status !== "en attente de validation"
+        );
 
         setEspaces(list);
         setFilteredEspaces(list);
@@ -132,7 +141,9 @@ export default function HomeUtilisateur() {
     if (newFilter === "Nouveaux lieux") {
       result = result.filter((e: any) => {
         if (!e.createdAt) return false;
-        const date = e.createdAt?.toDate ? e.createdAt.toDate() : new Date(e.createdAt);
+        const date = e.createdAt?.toDate
+          ? e.createdAt.toDate()
+          : new Date(e.createdAt);
         return Date.now() - date.getTime() < 72 * 3600 * 1000;
       });
     }
@@ -141,7 +152,9 @@ export default function HomeUtilisateur() {
     if (newSearch.trim().length > 0) {
       const s = newSearch.toLowerCase();
       result = result.filter((e) =>
-        ((e.localisation || "") + " " + (e.nom || "")).toLowerCase().includes(s)
+        ((e.localisation || "") + " " + (e.nom || ""))
+          .toLowerCase()
+          .includes(s)
       );
     }
 
@@ -161,7 +174,10 @@ export default function HomeUtilisateur() {
   /* ------------------ MAP POINTS ------------------ */
   const mapPoints = useMemo(() => {
     return filteredEspaces
-      .filter((e) => typeof e.latitude === "number" && typeof e.longitude === "number")
+      .filter(
+        (e) =>
+          typeof e.latitude === "number" && typeof e.longitude === "number"
+      )
       .map((e) => ({
         id: e.id,
         lat: e.latitude as number,
@@ -191,7 +207,12 @@ export default function HomeUtilisateur() {
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         <ActivityIndicator size="large" color="#3E7CB1" />
       </View>
     );
@@ -215,7 +236,9 @@ export default function HomeUtilisateur() {
         {/* PROCHAINE RÉSERVATION */}
         {nextReservation ? (
           <View style={styles.nextResaBox}>
-            <Text style={styles.sectionTitleCenter}>Votre prochaine réservation</Text>
+            <Text style={styles.sectionTitleCenter}>
+              Votre prochaine réservation
+            </Text>
 
             {nextReservation.espace?.images?.[0] && (
               <Image
@@ -224,22 +247,34 @@ export default function HomeUtilisateur() {
               />
             )}
 
-            <Text style={styles.espaceName}>{nextReservation.espace?.nom}</Text>
+            <Text style={styles.espaceName}>
+              {nextReservation.espace?.nom}
+            </Text>
             <Text style={styles.date}>Date: {nextReservation.date}</Text>
-            <Text style={styles.slots}>Heure: {nextReservation.slots.join(", ")}</Text>
-            <Text style={styles.price}>Prix: {nextReservation.total}€</Text>
+            <Text style={styles.slots}>
+              Heure: {nextReservation.slots.join(", ")}
+            </Text>
+            <Text style={styles.price}>
+              Prix: {nextReservation.total}€
+            </Text>
 
             <Pressable
               style={styles.detailsBtn}
-              onPress={() => router.push(`/user/mes_reservations/${nextReservation.id}`)}
+              onPress={() =>
+                router.push(`/user/mes_reservations/${nextReservation.id}`)
+              }
             >
               <Text style={styles.detailsBtnText}>Voir les détails</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.nextResaBox}>
-            <Text style={styles.sectionTitleCenter}>Aucune réservation à venir</Text>
-            <Text style={{ marginBottom: 10 }}>Réserve ton premier bureau ci-dessous !</Text>
+            <Text style={styles.sectionTitleCenter}>
+              Aucune réservation à venir
+            </Text>
+            <Text style={{ marginBottom: 10 }}>
+              Réserve ton premier bureau ci-dessous !
+            </Text>
           </View>
         )}
 
@@ -296,7 +331,10 @@ export default function HomeUtilisateur() {
               onPress={() => router.push(`/user/details_espace/${e.id}`)}
             >
               {e.images?.[0] ? (
-                <Image source={{ uri: e.images[0] }} style={styles.espaceImageHorizontal} />
+                <Image
+                  source={{ uri: e.images[0] }}
+                  style={styles.espaceImageHorizontal}
+                />
               ) : (
                 <Image
                   source={require("../../assets/images/roomly-logo.png")}
@@ -320,12 +358,14 @@ export default function HomeUtilisateur() {
         <Text style={styles.sectionTitleLeft}>Trouver sur la carte</Text>
 
         <View style={styles.mapWrapper}>
-  <RoomlyMap
-    initialRegion={initialRegion}
-    points={mapPoints}
-    onPressPoint={(id: string) => router.push(`/user/details_espace/${id}`)}
-  />
-</View>
+          <RoomlyMap
+            initialRegion={initialRegion}
+            points={mapPoints}
+            onPressPoint={(id: string) =>
+              router.push(`/user/details_espace/${id}`)
+            }
+          />
+        </View>
 
         <View style={{ height: 140 }} />
       </ScrollView>
