@@ -34,7 +34,7 @@ export default function BottomNavBarEntreprise({ activeTab }: BottomNavBarProps)
       key: "profile",
       icon: "person-outline",
       label: "Profil",
-      route: "/entreprise/profile",
+      route: "/entreprise/profil_entreprise",
     },
   ];
 

@@ -45,31 +45,41 @@ export default function AdminHome() {
 
           <Pressable
             style={styles.actionBtnSecondary}
-            onPress={() => router.push("/admin/toutes_reservations")}
+            onPress={() => router.push("./toutes_reservations")}
           >
             <Text style={styles.actionTitle}>Toutes les réservations</Text>
             <Text style={styles.actionSubtitle}>
-              Vue globale de l’occupation des espaces (à compléter).
+              Vue globale de l’occupation des espaces.
             </Text>
           </Pressable>
 
           <Pressable
             style={styles.actionBtnSecondary}
-            onPress={() => router.push("/admin/stats")}
+            onPress={() => router.push("./statistiques")}
           >
-            <Text style={styles.actionTitle}>Statistiques (brouillon)</Text>
+            <Text style={styles.actionTitle}>Statistiques</Text>
             <Text style={styles.actionSubtitle}>
-              Idées de KPI Roomly : CA, taux d’occupation, etc.
+              Statistiques globales
             </Text>
           </Pressable>
+          <Pressable
+            style={styles.actionBtnSecondary}
+            onPress={() => router.push("./utilisateurs")}
+          >
+            <Text style={styles.actionTitle}>Utilisateurs & Entreprises</Text>
+            <Text style={styles.actionSubtitle}>
+              Voir et rechercher tous les comptes Roomly.
+            </Text>
+          </Pressable>
+          
         </View>
 
         {/* BOUTON RETOUR UTILISATEUR */}
         <Pressable
           style={styles.backBtn}
-          onPress={() => router.replace("/user/home_utilisateur")}
+          onPress={() => router.replace("/public/login")}
         >
-          <Text style={styles.backBtnText}>Retour à l’espace utilisateur</Text>
+          <Text style={styles.backBtnText}>Retour</Text>
         </Pressable>
       </ScrollView>
     </View>
