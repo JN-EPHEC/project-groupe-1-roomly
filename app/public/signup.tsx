@@ -1,3 +1,4 @@
+// app/public/signup.tsx
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
@@ -7,13 +8,19 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
 export default function SignupScreen() {
-  const router = useRouter(); 
+  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | null }>({
+  const [acceptedCGU, setAcceptedCGU] = useState(false);
+  const [acceptedNDA, setAcceptedNDA] = useState(false);
+
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | null;
+  }>({
     message: "",
     type: null,
   });
@@ -31,7 +38,7 @@ export default function SignupScreen() {
   };
 
   const handleSignup = async () => {
-    if (!email || !password || !confirmPassword) {
+    if (!email || !password || !confirmPassword || !fullName) {
       showToast("Veuillez remplir tous les champs.", "error");
       return;
     }
@@ -49,22 +56,48 @@ export default function SignupScreen() {
       return;
     }
 
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(auth.currentUser!, {
-  displayName: fullName,  // <-- le nom complet entré dans le formulaire
-});
+    if (!acceptedCGU) {
+      showToast(
+        "Vous devez accepter les Conditions Générales d’Utilisation.",
+        "error"
+      );
+      return;
+    }
 
+    if (!acceptedNDA) {
+      showToast(
+        "Vous devez accepter la clause de non-divulgation.",
+        "error"
+      );
+      return;
+    }
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
       const user = userCredential.user;
 
+      await updateProfile(user, {
+        displayName: fullName,
+      });
+
       console.log("✅ Compte créé dans Firebase:", user.uid);
+
+      const now = new Date();
 
       await setDoc(doc(db, "users", user.uid), {
         email: email,
         type: "utilisateur",
         name: fullName,
         phone: "",
-        createdAt: new Date (),
+        createdAt: now,
+        acceptedCGU: true,
+        acceptedCGUAt: now,
+        acceptedNDA: true,
+        acceptedNDAAt: now,
       });
 
       console.log("✅ Données Firestore enregistrées pour:", email);
@@ -77,8 +110,10 @@ export default function SignupScreen() {
       console.log("❌ ERREUR FIREBASE:", error);
       let message = "Une erreur est survenue.";
 
-      if (error.code === "auth/email-already-in-use") message = "Cet email est déjà utilisé.";
-      else if (error.code === "auth/invalid-email") message = "Adresse email invalide.";
+      if (error.code === "auth/email-already-in-use")
+        message = "Cet email est déjà utilisé.";
+      else if (error.code === "auth/invalid-email")
+        message = "Adresse email invalide.";
       else if (error.code === "auth/weak-password")
         message =
           "Le mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre.";
@@ -90,7 +125,6 @@ export default function SignupScreen() {
     }
   };
 
-  // 👇 ton return principal DOIT ÊTRE ICI — à l’extérieur du handleSignup()
   return (
     <View style={styles.container}>
       <Image
@@ -101,7 +135,8 @@ export default function SignupScreen() {
 
       <Text style={styles.title}>Créer un compte utilisateur</Text>
       <Text style={styles.subtitle}>
-        Entrez votre adresse mail et définissez votre mot de passe pour réserver un espace
+        Entrez votre adresse mail et définissez votre mot de passe pour réserver
+        un espace
       </Text>
 
       <TextInput
@@ -134,8 +169,51 @@ export default function SignupScreen() {
       />
 
       <Text style={styles.passwordHint}>
-        Votre mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre.
+        Votre mot de passe doit contenir au moins 8 caractères, une majuscule
+        et un chiffre.
       </Text>
+
+      {/* CGU */}
+      <Pressable
+        style={styles.cguRow}
+        onPress={() => setAcceptedCGU((v) => !v)}
+      >
+        <View
+          style={[styles.checkbox, acceptedCGU && styles.checkboxChecked]}
+        >
+          {acceptedCGU && <Text style={styles.checkboxTick}>✓</Text>}
+        </View>
+        <Text style={styles.cguText}>
+          J’accepte les{" "}
+          <Text
+            style={styles.cguLink}
+            onPress={() => router.push("./cgu")}
+          >
+            Conditions Générales d’Utilisation
+          </Text>
+        </Text>
+      </Pressable>
+
+      {/* NDA */}
+      <Pressable
+        style={styles.cguRow}
+        onPress={() => setAcceptedNDA((v) => !v)}
+      >
+        <View
+          style={[styles.checkbox, acceptedNDA && styles.checkboxChecked]}
+        >
+          {acceptedNDA && <Text style={styles.checkboxTick}>✓</Text>}
+        </View>
+        <Text style={styles.cguText}>
+          J’accepte la{" "}
+          <Text
+            style={styles.cguLink}
+            onPress={() => router.push("./nda")}
+          >
+            clause de non-divulgation
+          </Text>
+        </Text>
+      </Pressable>
 
       <Pressable style={styles.button} onPress={handleSignup}>
         <Text style={styles.buttonText}>S’inscrire</Text>
@@ -148,7 +226,6 @@ export default function SignupScreen() {
         </Pressable>
       </View>
 
-      {/* ✅ Notification (succès / erreur) */}
       {toast.type && (
         <View
           style={[
@@ -202,8 +279,45 @@ const styles = StyleSheet.create({
     color: "#444",
     textAlign: "left",
     width: "100%",
-    marginBottom: 20,
+    marginBottom: 12,
   },
+
+  cguRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    width: "100%",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#555",
+    marginRight: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  checkboxChecked: {
+    backgroundColor: "#184E77",
+    borderColor: "#184E77",
+  },
+  checkboxTick: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  cguText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#333",
+  },
+  cguLink: {
+    color: "#184E77",
+    textDecorationLine: "underline",
+  },
+
   button: {
     backgroundColor: "#184E77",
     borderRadius: 30,

@@ -13,7 +13,12 @@ export default function SignupEntreprise() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | null }>({
+  const [acceptedCGU, setAcceptedCGU] = useState(false);
+
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | null;
+  }>({
     message: "",
     type: null,
   });
@@ -49,8 +54,20 @@ export default function SignupEntreprise() {
       return;
     }
 
+    if (!acceptedCGU) {
+      showToast(
+        "Vous devez accepter les Conditions Générales d’Utilisation.",
+        "error"
+      );
+      return;
+    }
+
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
       const user = userCredential.user;
 
       console.log("✅ Compte entreprise créé dans Firebase:", user.uid);
@@ -59,8 +76,10 @@ export default function SignupEntreprise() {
         email: email,
         companyName: companyName || "Entreprise sans nom",
         type: "entreprise",
-        phone:"",
-        createdAt: new Date (),
+        phone: "",
+        createdAt: new Date(),
+        acceptedCGU: true,
+        acceptedCGUAt: new Date(),
       });
 
       console.log("✅ Données Firestore enregistrées pour:", email);
@@ -73,10 +92,13 @@ export default function SignupEntreprise() {
       console.log("❌ ERREUR FIREBASE:", error);
       let message = "Une erreur est survenue.";
 
-      if (error.code === "auth/email-already-in-use") message = "Cet email est déjà utilisé.";
-      else if (error.code === "auth/invalid-email") message = "Adresse email invalide.";
+      if (error.code === "auth/email-already-in-use")
+        message = "Cet email est déjà utilisé.";
+      else if (error.code === "auth/invalid-email")
+        message = "Adresse email invalide.";
       else if (error.code === "auth/weak-password")
-        message = "Le mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre.";
+        message =
+          "Le mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre.";
       else if (error.code === "permission-denied")
         message = "Accès Firestore refusé : vérifie tes règles de sécurité.";
       else message = error.message || message;
@@ -130,6 +152,30 @@ export default function SignupEntreprise() {
       <Text style={styles.passwordHint}>
         Votre mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre.
       </Text>
+
+      {/* CGU */}
+      <Pressable
+        style={styles.cguRow}
+        onPress={() => setAcceptedCGU((v) => !v)}
+      >
+        <View
+          style={[
+            styles.checkbox,
+            acceptedCGU && styles.checkboxChecked,
+          ]}
+        >
+          {acceptedCGU && <Text style={styles.checkboxTick}>✓</Text>}
+        </View>
+        <Text style={styles.cguText}>
+          J’accepte les{" "}
+          <Text
+            style={styles.cguLink}
+            onPress={() => router.push("./cgu")}
+          >
+            Conditions Générales d’Utilisation
+          </Text>
+        </Text>
+      </Pressable>
 
       <Pressable style={styles.button} onPress={handleSignup}>
         <Text style={styles.buttonText}>S’inscrire</Text>
@@ -195,8 +241,45 @@ const styles = StyleSheet.create({
     color: "#444",
     textAlign: "left",
     width: "100%",
-    marginBottom: 20,
+    marginBottom: 12,
   },
+
+  cguRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    width: "100%",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#555",
+    marginRight: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  checkboxChecked: {
+    backgroundColor: "#184E77",
+    borderColor: "#184E77",
+  },
+  checkboxTick: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  cguText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#333",
+  },
+  cguLink: {
+    color: "#184E77",
+    textDecorationLine: "underline",
+  },
+
   button: {
     backgroundColor: "#184E77",
     borderRadius: 30,
