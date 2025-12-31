@@ -98,9 +98,9 @@ export default function MesReservations() {
               <Text style={styles.espaceName}>{r.espace?.nom || "Espace"}</Text>
               <Text style={{ color: "#666" }}>{r.espace?.adresse || ""}</Text>
 
-              <Text style={styles.date}>📅 {r.date}</Text>
-              <Text style={styles.slots}>🕒 {r.slots.join(", ")}</Text>
-              <Text style={styles.total}>💶 {r.total}€</Text>
+              <Text style={styles.date}> {r.date}</Text>
+              <Text style={styles.slots}> {r.slots.join(", ")}</Text>
+              <Text style={styles.total}> {r.total}€</Text>
             </View>
           </Pressable>
         ))}
@@ -108,7 +108,7 @@ export default function MesReservations() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      <BottomNavBar activeTab="menu" />
+      <BottomNavBar activeTab="reservations" />
     </View>
   );
 }

@@ -27,7 +27,6 @@ export default function HomeEntreprise() {
       try {
         const uid = auth.currentUser?.uid;
 
-        // 1. Charger toutes les réservations des espaces appartenant à l’entreprise
         const espacesSnap = await getDocs(
           query(collection(db, "espaces"), where("uid", "==", uid))
         );
@@ -40,51 +39,47 @@ export default function HomeEntreprise() {
 
         const rSnap = await getDocs(collection(db, "reservations"));
         const rawReservations = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-const all: any[] = [];
+        const all: any[] = [];
 
-for (const r of rawReservations as any) {
-  if (!espaceIds.includes(r.espaceId)) continue;
+        for (const r of rawReservations as any) {
+          if (!espaceIds.includes(r.espaceId)) continue;
 
-  // Charger le nom du user
-  let userName = "Utilisateur";
-  if (r.userId) {
-    const userSnap = await getDoc(doc(db, "users", r.userId));
-    if (userSnap.exists()) {
-      const data = userSnap.data();
-      userName = data.name || data.email || "Utilisateur";
-    }
-  }
+          let userName = "Utilisateur";
+          if (r.userId) {
+            const userSnap = await getDoc(doc(db, "users", r.userId));
+            if (userSnap.exists()) {
+              const data = userSnap.data();
+              userName = (data as any).name || (data as any).email || "Utilisateur";
+            }
+          }
 
-  all.push({
-    ...r,
-    userName,
-  });
-}
+          all.push({
+            ...r,
+            userName,
+          });
+        }
 
-        // Trier date ascendante
         all.sort((a: any, b: any) => (a.date > b.date ? 1 : -1));
 
         setReservations(all);
 
-        // 2. Reservations à venir
         const future = all.filter((r: any) => new Date(r.date) >= new Date());
         setUpcoming(future.slice(0, 5));
 
-        // 3. KPIs calculés
         const todayStr = new Date().toISOString().slice(0, 10);
         const todayCount = all.filter((r: any) => r.date === todayStr).length;
 
-        // Revenus du mois (à la date de création de la réservation)
-const month = new Date().getMonth();
-const monthlyRev = all
-  .filter((r: any) => {
-    if (!r.createdAt) return false;
-    const created = r.createdAt.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
-    return created.getMonth() === month;
-  })
-  .reduce((sum, r: any) => sum + (r.total || 0), 0);
+        const month = new Date().getMonth();
+        const monthlyRev = all
+          .filter((r: any) => {
+            if (!r.createdAt) return false;
+            const created = r.createdAt.toDate
+              ? r.createdAt.toDate()
+              : new Date(r.createdAt);
+            return created.getMonth() === month;
+          })
+          .reduce((sum, r: any) => sum + (r.total || 0), 0);
 
-        // Taux d’occupation simplifié : (réservations / 30 jours)
         const occupancy = Math.min(100, Math.round((all.length / 30) * 100));
 
         setKpis({
@@ -105,7 +100,6 @@ const monthlyRev = all
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-
         {/* LOGO */}
         <Image
           source={require("../../assets/images/roomly-logo.png")}
@@ -119,7 +113,7 @@ const monthlyRev = all
         <View style={styles.kpiRow}>
           <View style={styles.kpiCard}>
             <Text style={styles.kpiValue}>{kpis.today}</Text>
-            <Text style={styles.kpiLabel}>Réservations aujourd'hui</Text>
+            <Text style={styles.kpiLabel}>Réservations aujourd&apos;hui</Text>
           </View>
 
           <View style={styles.kpiCard}>
@@ -129,7 +123,7 @@ const monthlyRev = all
 
           <View style={styles.kpiCard}>
             <Text style={styles.kpiValue}>{kpis.occupancy}%</Text>
-            <Text style={styles.kpiLabel}>Taux d'occupation</Text>
+            <Text style={styles.kpiLabel}>Taux d&apos;occupation</Text>
           </View>
         </View>
 
@@ -143,17 +137,16 @@ const monthlyRev = all
         ) : (
           reservations.slice(0, 3).map((r) => (
             <View key={r.id} style={styles.resaCard}>
-  <Text style={styles.resaTitle}>📍 {r.date}</Text>
+              <Text style={styles.resaTitle}>📍 {r.date}</Text>
 
-  <Text style={{ fontWeight: "600" }}>
-    Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
-  </Text>
+              <Text style={{ fontWeight: "600" }}>
+                Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
+              </Text>
 
-  <Text>Bureau : {r.espaceId}</Text>
-  <Text>Créneaux : {r.slots.join(", ")}</Text>
-  <Text>Total : {r.total} €</Text>
-</View>
-
+              <Text>Bureau : {r.espaceId}</Text>
+              <Text>Créneaux : {r.slots.join(", ")}</Text>
+              <Text>Total : {r.total} €</Text>
+            </View>
           ))
         )}
 
@@ -165,41 +158,41 @@ const monthlyRev = all
         ) : (
           upcoming.map((r) => (
             <View key={r.id} style={styles.resaCard}>
-  <Text style={styles.resaTitle}>{r.date}</Text>
+              <Text style={styles.resaTitle}>{r.date}</Text>
 
-  <Text style={{ fontWeight: "600" }}>
-    Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
-  </Text>
+              <Text style={{ fontWeight: "600" }}>
+                Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
+              </Text>
 
-  <Text>Créneaux : {r.slots.join(", ")}</Text>
-  <Text>Total : {r.total} €</Text>
-</View>
+              <Text>Créneaux : {r.slots.join(", ")}</Text>
+              <Text>Total : {r.total} €</Text>
+            </View>
           ))
         )}
 
         {/* ------------------ BOUTONS ACTION ------------------ */}
         <View style={styles.buttonsContainer}>
           <Pressable
-            style={styles.button}
+            style={styles.mainButton}
             onPress={() => router.push("/entreprise/publier_espace")}
           >
-            <Text style={styles.buttonText}>Publier un nouvel espace</Text>
+            <Text style={styles.mainButtonText}>Publier un nouvel espace</Text>
           </Pressable>
 
           <Pressable
-            style={styles.button}
+            style={styles.mainButton}
             onPress={() => router.push("/entreprise/gerer_annonces")}
           >
-            <Text style={styles.buttonText}>Gérer mes annonces</Text>
+            <Text style={styles.mainButtonText}>Gérer mes annonces</Text>
           </Pressable>
 
           <Pressable
-            style={styles.button}
-            onPress={() => router.push("/entreprise/mes_reservations")}>
-            <Text style={styles.buttonText}>Toutes les réservations</Text>
+            style={styles.mainButton}
+            onPress={() => router.push("/entreprise/mes_reservations")}
+          >
+            <Text style={styles.mainButtonText}>Toutes les réservations</Text>
           </Pressable>
         </View>
-
       </ScrollView>
 
       <BottomNavBarEntreprise activeTab="menu" />
@@ -210,8 +203,8 @@ const monthlyRev = all
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF3F8" },
 
-  scrollContent: { 
-    padding: 20 ,
+  scrollContent: {
+    padding: 20,
     paddingBottom: 120,
   },
 
@@ -271,18 +264,23 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  /* Buttons */
+  /* Buttons – même style que mainButton dans home_utilisateur */
   buttonsContainer: {
     marginTop: 20,
-    gap: 16,
-  },
-  button: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 12,
-    paddingVertical: 16,
+    width: "100%",
     alignItems: "center",
   },
-  buttonText: {
+  mainButton: {
+    width: "85%",
+    backgroundColor: "#3E7CB1",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  mainButtonText: {
+    color: "#fff",
+    fontWeight: "700",
     fontSize: 16,
   },
 });

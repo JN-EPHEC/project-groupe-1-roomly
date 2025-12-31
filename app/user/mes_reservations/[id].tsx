@@ -314,9 +314,9 @@ export default function ReservationDetail() {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Votre réservation</Text>
-          <Text>📅 {reservation.date}</Text>
-          <Text>🕒 {reservation.slots.join(", ")}</Text>
-          <Text>💶 Total payé : {reservation.total}€</Text>
+          <Text> {reservation.date}</Text>
+          <Text> {reservation.slots.join(", ")}</Text>
+          <Text> Total payé : {reservation.total}€</Text>
         </View>
 
         <View style={{ height: 20 }} />
@@ -377,7 +377,7 @@ export default function ReservationDetail() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      <BottomNavBar activeTab="menu" />
+      <BottomNavBar activeTab="reservations" />
     </View>
     </KeyboardAvoidingView>
   );
