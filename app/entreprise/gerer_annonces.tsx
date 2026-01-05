@@ -29,14 +29,21 @@ import { auth, db } from "../../firebaseConfig";
 const STATUS_ATTENTE = "en attente de validation";
 const STATUS_VALIDE = "validé";
 const STATUS_REFUSE = "refusé";
+const STATUS_DESACTIVE = "desactive";
 
-type FilterValue = "Tous" | "validé" | "en attente de validation" | "refusé";
+type FilterValue =
+  | "Tous"
+  | "validé"
+  | "en attente de validation"
+  | "refusé"
+  | "desactive";
 
 const FILTERS: { label: string; value: FilterValue }[] = [
   { label: "Tous", value: "Tous" },
   { label: "Validés", value: STATUS_VALIDE },
   { label: "En attente", value: STATUS_ATTENTE },
   { label: "Refusés", value: STATUS_REFUSE },
+  { label: "Désactivés", value: STATUS_DESACTIVE },
 ];
 
 type BoostType = "24h" | "3j" | "7j";
@@ -96,6 +103,7 @@ export default function GererAnnoncesScreen() {
   const [loading, setLoading] = useState(true);
   const [espaces, setEspaces] = useState<Espace[]>([]);
   const [filter, setFilter] = useState<FilterValue>("Tous");
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
   // Modal boost
   const [boostModalVisible, setBoostModalVisible] = useState(false);
@@ -228,7 +236,53 @@ export default function GererAnnoncesScreen() {
         </View>
       );
     }
+    if (status === STATUS_DESACTIVE) {
+      return (
+        <View style={[styles.badge, styles.badgeDesactive]}>
+          <Text style={styles.badgeText}>Désactivé</Text>
+        </View>
+      );
+    }
     return null;
+  };
+
+  const toggleStatus = async (espace: Espace) => {
+    const current = espace.status;
+
+    // On limite l’action aux annonces validées ou déjà désactivées
+    if (current !== STATUS_VALIDE && current !== STATUS_DESACTIVE) {
+      Alert.alert(
+        "Action impossible",
+        "Vous ne pouvez (dés)activer que les annonces validées."
+      );
+      return;
+    }
+
+    const newStatus =
+      current === STATUS_DESACTIVE ? STATUS_VALIDE : STATUS_DESACTIVE;
+
+    try {
+      setUpdatingStatusId(espace.id);
+
+      await updateDoc(doc(db, "espaces", espace.id), {
+        status: newStatus,
+      });
+
+      // Mise à jour locale
+      setEspaces((prev) =>
+        prev.map((e) =>
+          e.id === espace.id ? { ...e, status: newStatus } : e
+        )
+      );
+    } catch (e) {
+      console.log("Erreur changement statut (désactivation):", e);
+      Alert.alert(
+        "Erreur",
+        "Impossible de mettre à jour le statut pour le moment."
+      );
+    } finally {
+      setUpdatingStatusId(null);
+    }
   };
 
   const openBoostModal = (espace: Espace) => {
@@ -392,6 +446,27 @@ export default function GererAnnoncesScreen() {
                     }
                   >
                     <Ionicons name="create-outline" size={22} color="#F49B0B" />
+                  </Pressable>
+
+                  {/* (Dés)activer */}
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() => toggleStatus(espace)}
+                    disabled={updatingStatusId === espace.id}
+                  >
+                    {updatingStatusId === espace.id ? (
+                      <ActivityIndicator size="small" color="#3E7CB1" />
+                    ) : (
+                      <Ionicons
+                        name={
+                          espace.status === STATUS_DESACTIVE
+                            ? "play-circle-outline" // réactiver
+                            : "pause-circle-outline" // désactiver
+                        }
+                        size={22}
+                        color="#3E7CB1"
+                      />
+                    )}
                   </Pressable>
 
                   <Pressable
@@ -629,6 +704,9 @@ const styles = StyleSheet.create({
   },
   badgeRefuse: {
     backgroundColor: "#c0392b",
+  },
+  badgeDesactive: {
+    backgroundColor: "#7f8c8d",
   },
   badgeText: {
     color: "#fff",

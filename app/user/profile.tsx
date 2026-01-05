@@ -5,14 +5,14 @@ import { deleteUser } from "firebase/auth";
 import { deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import BottomNavBar from "../../components/BottomNavBar";
 import { auth, db } from "../../firebaseConfig";
@@ -27,6 +27,10 @@ type UserData = {
   bio?: string;
   photoURL?: string;
   createdAt?: any;
+
+  // ⭐ nouveaux champs pour la note moyenne
+  averageRating?: number;
+  ratingsCount?: number;
 };
 
 export default function UserProfileScreen() {
@@ -135,6 +139,14 @@ export default function UserProfileScreen() {
     );
   }
 
+  const hasRating =
+    typeof userData.averageRating === "number" &&
+    (userData.ratingsCount || 0) > 0;
+
+  const roundedStars = hasRating
+    ? Math.round(userData.averageRating as number)
+    : 0;
+
   return (
     <View style={styles.container}>
       {/* CONTENU SCROLLABLE */}
@@ -173,6 +185,27 @@ export default function UserProfileScreen() {
           <View style={styles.profileInfo}>
             <Text style={styles.nameText}>{userData.name || "Utilisateur"}</Text>
             <Text style={styles.emailText}>{userData.email || "-"}</Text>
+
+            {/* Affichage note moyenne */}
+            {hasRating && (
+              <View style={styles.ratingRow}>
+                <View style={{ flexDirection: "row", marginRight: 6 }}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Ionicons
+                      key={i}
+                      name={i <= roundedStars ? "star" : "star-outline"}
+                      size={16}
+                      color="#F49B0B"
+                      style={{ marginRight: 2 }}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.ratingText}>
+                  {(userData.averageRating as number).toFixed(1)} / 5 ·{" "}
+                  {userData.ratingsCount} avis entreprise
+                </Text>
+              </View>
+            )}
 
             <Pressable
               style={styles.editProfileBtn}
@@ -397,18 +430,13 @@ export default function UserProfileScreen() {
               <View style={styles.subDivider} />
 
               <Pressable
-                style={styles.subMenuItem}
-                onPress={() =>
-                  Alert.alert(
-                    "Conditions",
-                    "Conditions d’utilisation & politique de confidentialité (à implémenter)."
-                  )
-                }
-              >
-                <Text style={styles.subMenuText}>
-                  Conditions & confidentialité
-                </Text>
-              </Pressable>
+  style={styles.subMenuItem}
+  onPress={() => router.push("./confidentialite")}
+>
+  <Text style={styles.subMenuText}>
+    Conditions & confidentialité
+  </Text>
+</Pressable>
 
               <View style={styles.subDivider} />
 
@@ -608,5 +636,14 @@ const styles = StyleSheet.create({
     color: "#BB0000",
     fontWeight: "600",
     fontSize: 14,
+  },
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  ratingText: {
+    fontSize: 12,
+    color: "#444",
   },
 });

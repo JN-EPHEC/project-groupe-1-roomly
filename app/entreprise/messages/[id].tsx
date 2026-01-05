@@ -1,24 +1,29 @@
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    onSnapshot,
-    orderBy,
-    query,
-    updateDoc,
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
 } from "firebase/firestore";
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { useEffect, useRef, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { auth, db } from "../../../firebaseConfig";
 
@@ -29,6 +34,7 @@ export default function ConversationEntreprise() {
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [threadInfo, setThreadInfo] = useState<any>(null);
+  const [sending, setSending] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
 
@@ -45,7 +51,7 @@ export default function ConversationEntreprise() {
       if (data.userId) {
         const uSnap = await getDoc(doc(db, "users", data.userId));
         if (uSnap.exists()) {
-          const u = uSnap.data();
+          const u = uSnap.data() as any;
           userNom = u.name || u.email || userNom;
         }
       }
@@ -81,31 +87,86 @@ export default function ConversationEntreprise() {
     return () => unsub();
   }, [id]);
 
-  /** Envoyer message */
-  const send = async () => {
+  /** --------- ENVOI TEXTE --------- */
+  const sendText = async () => {
     if (!input.trim()) return;
 
-    await addDoc(collection(db, `threads/${id}/messages`), {
-      senderId: auth.currentUser?.uid,
-      text: input,
-      createdAt: Date.now(),
-    });
+    try {
+      setSending(true);
 
-    await updateDoc(doc(db, "threads", id as string), {
-      lastMessage: input,
-      updatedAt: Date.now(),
-      unreadUser: true,   // pour l'utilisateur
-    });
+      await addDoc(collection(db, `threads/${id}/messages`), {
+        senderId: auth.currentUser?.uid,
+        text: input.trim(),
+        createdAt: Date.now(),
+      });
 
-    setInput("");
+      await updateDoc(doc(db, "threads", id as string), {
+        lastMessage: input.trim(),
+        updatedAt: Date.now(),
+        unreadUser: true, // pour l'utilisateur
+      });
+
+      setInput("");
+    } catch (e) {
+      console.log("Erreur envoi message texte:", e);
+      Alert.alert("Erreur", "Impossible d’envoyer le message.");
+    } finally {
+      setSending(false);
+    }
   };
 
+  /** --------- ENVOI IMAGE --------- */
+  const sendImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission refusée", "Accès aux photos refusé.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.7,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+
+      const storage = getStorage();
+      const fileRef = ref(
+        storage,
+        `threads/${id}/${Date.now()}_image.jpg`
+      );
+      await uploadBytes(fileRef, blob);
+      const url = await getDownloadURL(fileRef);
+
+      await addDoc(collection(db, `threads/${id}/messages`), {
+        senderId: auth.currentUser?.uid,
+        imageUrl: url,
+        text: "",
+        createdAt: Date.now(),
+      });
+
+      await updateDoc(doc(db, "threads", id as string), {
+        lastMessage: "📷 Image envoyée",
+        updatedAt: Date.now(),
+        unreadUser: true,
+      });
+    } catch (e) {
+      console.log("Erreur envoi image:", e);
+      Alert.alert("Erreur", "Impossible d’envoyer l’image.");
+    }
+  };
+
+  /** --------- RENDU --------- */
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-
       {/* ------ HEADER ------- */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton}>
@@ -143,28 +204,48 @@ export default function ConversationEntreprise() {
                 isMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" },
               ]}
             >
-              <Text style={isMe ? styles.myText : styles.theirText}>
-                {m.text}
-              </Text>
+              {/* Texte */}
+              {m.text ? (
+                <Text style={isMe ? styles.myText : styles.theirText}>
+                  {m.text}
+                </Text>
+              ) : null}
+
+              {/* Image éventuelle */}
+              {m.imageUrl ? (
+                <Image
+                  source={{ uri: m.imageUrl }}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
+              ) : null}
+
               <Text style={styles.time}>{time}</Text>
             </View>
           );
         })}
       </ScrollView>
 
-      {/* ------ INPUT ------- */}
+      {/* ------ INPUT + bouton image ------- */}
       <View style={styles.inputRow}>
+        <Pressable style={styles.iconBtn} onPress={sendImage}>
+          <Ionicons name="image-outline" size={22} color="#3E7CB1" />
+        </Pressable>
+
         <TextInput
           style={styles.input}
           placeholder="Écrire un message..."
           value={input}
           onChangeText={setInput}
         />
-        <Pressable style={styles.sendBtn} onPress={send}>
+        <Pressable
+          style={[styles.sendBtn, sending && { opacity: 0.6 }]}
+          onPress={sendText}
+          disabled={sending}
+        >
           <Text style={styles.sendText}>Envoyer</Text>
         </Pressable>
       </View>
-
     </KeyboardAvoidingView>
   );
 }
@@ -242,6 +323,13 @@ const styles = StyleSheet.create({
     color: "black",
   },
 
+  image: {
+    width: 180,
+    height: 180,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+
   time: {
     fontSize: 10,
     color: "#444",
@@ -251,30 +339,38 @@ const styles = StyleSheet.create({
 
   inputRow: {
     flexDirection: "row",
-    padding: 10,
+    padding: 8,
     backgroundColor: "white",
     borderTopWidth: 1,
     borderColor: "#ddd",
+    alignItems: "center",
+  },
+
+  iconBtn: {
+    paddingHorizontal: 4,
+    marginRight: 4,
   },
 
   input: {
     flex: 1,
     backgroundColor: "#eee",
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 20,
+    marginHorizontal: 4,
   },
 
   sendBtn: {
     backgroundColor: "#3E7CB1",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 20,
-    marginLeft: 8,
+    marginLeft: 4,
   },
 
   sendText: {
     color: "white",
     fontWeight: "700",
+    fontSize: 13,
   },
 });

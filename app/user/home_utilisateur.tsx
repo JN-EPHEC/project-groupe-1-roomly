@@ -39,8 +39,6 @@ type Espace = {
   latitude?: number;
   longitude?: number;
   status?: string;
-
-  // 🔹 champs de boost
   boostType?: string | null;
   boostUntil?: any | null;
 };
@@ -74,6 +72,9 @@ export default function HomeUtilisateur() {
   const [minCapacity, setMinCapacity] = useState("");
 
   const [loading, setLoading] = useState(true);
+
+  // 🔹 vue liste / carte
+  const [viewMode, setViewMode] = useState<"liste" | "carte">("liste");
 
   // 🔹 formulaire de contact / ticket support
   const [contactEmail, setContactEmail] = useState(
@@ -121,9 +122,11 @@ export default function HomeUtilisateur() {
           ...(d.data() as any),
         }));
 
-        const list: Espace[] = rawList.filter(
-          (e: any) => e.status !== "en attente de validation"
-        );
+        const list: Espace[] = rawList.filter((e: any) => {
+  if (e.status === "en attente de validation") return false;
+  if (e.status === "desactive") return false; // 🔹 espace désactivé par l’entreprise
+  return true;
+});
 
         setEspaces(list);
         setFilteredEspaces(list);
@@ -137,42 +140,40 @@ export default function HomeUtilisateur() {
     loadData();
   }, []);
 
-/* ------------------ CONTACT / TICKET SUPPORT ------------------ */
-const handleSendContact = async () => {
-  if (!contactEmail.trim() || !contactMessage.trim()) {
-    Alert.alert("Oups", "Merci de remplir l’e-mail et le message.");
-    return;
-  }
+  /* ------------------ CONTACT / TICKET SUPPORT ------------------ */
+  const handleSendContact = async () => {
+    if (!contactEmail.trim() || !contactMessage.trim()) {
+      Alert.alert("Oups", "Merci de remplir l’e-mail et le message.");
+      return;
+    }
 
-  try {
-    setSendingContact(true);
+    try {
+      setSendingContact(true);
 
-    // ✅ ticket de support UTILISATEUR
-    await addDoc(collection(db, "supportTickets"), {
-      userId: auth.currentUser?.uid || null,
-      email: contactEmail.trim(),
-      message: contactMessage.trim(),
-      fromType: "utilisateur",
-      status: "ouvert",
-      createdAt: serverTimestamp(),
-      lastUpdatedAt: serverTimestamp(),
-    });
+      await addDoc(collection(db, "supportTickets"), {
+        userId: auth.currentUser?.uid || null,
+        email: contactEmail.trim(),
+        message: contactMessage.trim(),
+        fromType: "utilisateur",
+        status: "ouvert",
+        createdAt: serverTimestamp(),
+        lastUpdatedAt: serverTimestamp(),
+      });
 
-    setContactMessage("");
-    Alert.alert(
-      "Ticket créé",
-      "Votre ticket support a été créé. Vous pouvez suivre son état dans 'Mes tickets'."
-    );
+      setContactMessage("");
+      Alert.alert(
+        "Ticket créé",
+        "Votre ticket support a été créé. Vous pouvez suivre son état dans 'Mes tickets'."
+      );
 
-    // ✅ redirection vers la page de suivi utilisateur
-    router.push("/user/mes_tickets");
-  } catch (e) {
-    console.log("Erreur contact utilisateur :", e);
-    Alert.alert("Erreur", "Impossible de créer le ticket pour le moment.");
-  } finally {
-    setSendingContact(false);
-  }
-};
+      router.push("/user/mes_tickets");
+    } catch (e) {
+      console.log("Erreur contact utilisateur :", e);
+      Alert.alert("Erreur", "Impossible de créer le ticket pour le moment.");
+    } finally {
+      setSendingContact(false);
+    }
+  };
 
   /* ------------------ APPLY FILTERS ------------------ */
   const applyFilters = async (
@@ -183,7 +184,6 @@ const handleSendContact = async () => {
   ) => {
     let result: Espace[] = [...espaces];
 
-    // 1) Populaires (top 2)
     if (newFilter === "Populaires") {
       const rSnap = await getDocs(collection(db, "reservations"));
       const reservations = rSnap.docs.map((d) => d.data() as any);
@@ -205,7 +205,6 @@ const handleSendContact = async () => {
         .slice(0, 2);
     }
 
-    // 2) Nouveaux lieux (moins de 72h)
     if (newFilter === "Nouveaux lieux") {
       result = result.filter((e: any) => {
         if (!e.createdAt) return false;
@@ -216,7 +215,6 @@ const handleSendContact = async () => {
       });
     }
 
-    // 3) Recherche texte
     if (newSearch.trim().length > 0) {
       const s = newSearch.toLowerCase();
       result = result.filter((e) =>
@@ -226,7 +224,6 @@ const handleSendContact = async () => {
       );
     }
 
-    // 4) Filtre prix max
     const maxP = Number(newMaxPrice.replace(",", "."));
     if (!isNaN(maxP) && maxP > 0) {
       result = result.filter((e) => {
@@ -235,7 +232,6 @@ const handleSendContact = async () => {
       });
     }
 
-    // 5) Filtre capacité min
     const minC = parseInt(newMinCapacity, 10);
     if (!isNaN(minC) && minC > 0) {
       result = result.filter((e) => {
@@ -244,7 +240,6 @@ const handleSendContact = async () => {
       });
     }
 
-    // 6) Tri : annonces boostées en premier
     const now = Date.now();
     result.sort((a, b) => {
       const aBoost =
@@ -335,6 +330,7 @@ const handleSendContact = async () => {
     );
   }
 
+  /* ------------------ RENDU ------------------ */
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -420,48 +416,6 @@ const handleSendContact = async () => {
           </Pressable>
         </View>
 
-        {/* FORMULAIRE CONTACT / TICKET */}
-        <View style={styles.contactCard}>
-          <Text style={styles.contactTitle}>Une question ?</Text>
-          <Text style={styles.contactSubtitle}>
-            Écris-nous, l’équipe Roomly te répondra.
-          </Text>
-
-          <TextInput
-            style={styles.contactInput}
-            placeholder="Ton adresse e-mail"
-            placeholderTextColor="#777"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={contactEmail}
-            onChangeText={setContactEmail}
-          />
-
-          <TextInput
-            style={[styles.contactInput, styles.contactTextarea]}
-            placeholder="Ton message"
-            placeholderTextColor="#777"
-            multiline
-            numberOfLines={4}
-            value={contactMessage}
-            onChangeText={setContactMessage}
-          />
-
-          <Pressable
-  style={[
-    styles.contactButton,
-    sendingContact && { opacity: 0.7 },
-  ]}
-  onPress={handleSendContact}
-  disabled={sendingContact}
->
-  <Text style={styles.contactButtonText}>
-    {sendingContact ? "Création..." : "Créer un ticket support"}
-  </Text>
-</Pressable>
-
-        </View>
-
         {/* BUREAUX */}
         <Text style={styles.sectionTitleLeft}>Bureaux disponibles</Text>
 
@@ -494,7 +448,7 @@ const handleSendContact = async () => {
           />
         </View>
 
-        {/* FILTRES */}
+        {/* FILTRES (Tous / Nouveaux / Populaires) */}
         <View style={styles.filterRow}>
           {(["Tous", "Nouveaux lieux", "Populaires"] as const).map((f) => (
             <Pressable
@@ -514,63 +468,197 @@ const handleSendContact = async () => {
           ))}
         </View>
 
-        {/* LISTE ESPACES */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.horizontalScroll}
-          style={{ width: "100%" }}
-        >
-          {filteredEspaces.map((e) => {
-            const boosted = isBoostActive(e);
-            return (
-              <Pressable
-                key={e.id}
-                style={styles.espaceCardHorizontal}
-                onPress={() => router.push(`/user/details_espace/${e.id}`)}
-              >
-                {e.images?.[0] ? (
-                  <Image
-                    source={{ uri: e.images[0] }}
-                    style={styles.espaceImageHorizontal}
-                  />
-                ) : (
-                  <Image
-                    source={require("../../assets/images/roomly-logo.png")}
-                    style={styles.espaceImageHorizontal}
-                  />
-                )}
+        {/* TOGGLE LISTE / CARTE */}
+        <View style={styles.viewToggleRow}>
+          <Pressable
+            style={[
+              styles.viewToggleBtn,
+              viewMode === "liste" && styles.viewToggleBtnActive,
+            ]}
+            onPress={() => setViewMode("liste")}
+          >
+            <Text
+              style={[
+                styles.viewToggleText,
+                viewMode === "liste" && styles.viewToggleTextActive,
+              ]}
+            >
+              Vue liste
+            </Text>
+          </Pressable>
 
-                {boosted && (
-                  <View style={styles.boostBadge}>
-                    <Text style={styles.boostBadgeText}>Top listing</Text>
+          <Pressable
+            style={[
+              styles.viewToggleBtn,
+              viewMode === "carte" && styles.viewToggleBtnActive,
+            ]}
+            onPress={() => setViewMode("carte")}
+          >
+            <Text
+              style={[
+                styles.viewToggleText,
+                viewMode === "carte" && styles.viewToggleTextActive,
+              ]}
+            >
+              Vue carte
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* LISTE ESPACES (MODE LISTE, VERTICALE EN GRILLE 2 COLONNES) */}
+        {viewMode === "liste" && (
+          <View style={styles.gridContainer}>
+            {filteredEspaces.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun espace disponible.</Text>
+            ) : (
+              filteredEspaces.reduce<JSX.Element[]>((rows, _, idx, arr) => {
+                if (idx % 2 !== 0) return rows;
+
+                const first = arr[idx];
+                const second = arr[idx + 1];
+
+                rows.push(
+                  <View key={`row-${idx}`} style={styles.gridRow}>
+                    {/* Carte 1 */}
+                    <Pressable
+                      style={[
+                        styles.espaceCardVertical,
+                        second && { marginRight: 8 },
+                      ]}
+                      onPress={() =>
+                        router.push(`/user/details_espace/${first.id}`)
+                      }
+                    >
+                      {first.images?.[0] ? (
+                        <Image
+                          source={{ uri: first.images[0] }}
+                          style={styles.espaceImageVertical}
+                        />
+                      ) : (
+                        <Image
+                          source={require("../../assets/images/roomly-logo.png")}
+                          style={styles.espaceImageVertical}
+                        />
+                      )}
+
+                      {isBoostActive(first) && (
+                        <View style={styles.boostBadge}>
+                          <Text style={styles.boostBadgeText}>Top listing</Text>
+                        </View>
+                      )}
+
+                      <Text style={styles.espaceCardTitle} numberOfLines={1}>
+                        {first.nom || "Espace"}
+                      </Text>
+                      <Text style={styles.priceSmall}>{first.prix} €/h</Text>
+                      <Text style={styles.locationSmall} numberOfLines={1}>
+                        {first.localisation || ""}
+                      </Text>
+                    </Pressable>
+
+                    {/* Carte 2 (si existe) */}
+                    {second ? (
+                      <Pressable
+                        style={styles.espaceCardVertical}
+                        onPress={() =>
+                          router.push(`/user/details_espace/${second.id}`)
+                        }
+                      >
+                        {second.images?.[0] ? (
+                          <Image
+                            source={{ uri: second.images[0] }}
+                            style={styles.espaceImageVertical}
+                          />
+                        ) : (
+                          <Image
+                            source={require("../../assets/images/roomly-logo.png")}
+                            style={styles.espaceImageVertical}
+                          />
+                        )}
+
+                        {isBoostActive(second) && (
+                          <View style={styles.boostBadge}>
+                            <Text style={styles.boostBadgeText}>
+                              Top listing
+                            </Text>
+                          </View>
+                        )}
+
+                        <Text style={styles.espaceCardTitle} numberOfLines={1}>
+                          {second.nom || "Espace"}
+                        </Text>
+                        <Text style={styles.priceSmall}>
+                          {second.prix} €/h
+                        </Text>
+                        <Text style={styles.locationSmall} numberOfLines={1}>
+                          {second.localisation || ""}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      // Si nombre impair : on laisse un espace vide pour compléter la ligne
+                      <View style={[styles.espaceCardVertical, { opacity: 0 }]} />
+                    )}
                   </View>
-                )}
+                );
 
-                <Text style={styles.espaceCardTitle} numberOfLines={1}>
-                  {e.nom || "Espace"}
-                </Text>
-                <Text style={styles.priceSmall}>{e.prix} €/h</Text>
-                <Text style={styles.locationSmall} numberOfLines={1}>
-                  {e.localisation || ""}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                return rows;
+              }, [])
+            )}
+          </View>
+        )}
 
-        {/* MAP */}
-        <View style={{ height: 16 }} />
-        <Text style={styles.sectionTitleLeft}>Trouver sur la carte</Text>
+        {/* CARTE (MODE CARTE) */}
+        {viewMode === "carte" && (
+          <View style={styles.mapWrapper}>
+            <RoomlyMap
+              initialRegion={initialRegion}
+              points={mapPoints}
+              onPressPoint={(id: string) =>
+                router.push(`/user/details_espace/${id}`)
+              }
+            />
+          </View>
+        )}
 
-        <View style={styles.mapWrapper}>
-          <RoomlyMap
-            initialRegion={initialRegion}
-            points={mapPoints}
-            onPressPoint={(id: string) =>
-              router.push(`/user/details_espace/${id}`)
-            }
+        {/* FORMULAIRE CONTACT / TICKET — EN BAS DE LA PAGE */}
+        <View style={styles.contactCard}>
+          <Text style={styles.contactTitle}>Une question ?</Text>
+          <Text style={styles.contactSubtitle}>
+            Écris-nous, l’équipe Roomly te répondra.
+          </Text>
+
+          <TextInput
+            style={styles.contactInput}
+            placeholder="Ton adresse e-mail"
+            placeholderTextColor="#777"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={contactEmail}
+            onChangeText={setContactEmail}
           />
+
+          <TextInput
+            style={[styles.contactInput, styles.contactTextarea]}
+            placeholder="Ton message"
+            placeholderTextColor="#777"
+            multiline
+            numberOfLines={4}
+            value={contactMessage}
+            onChangeText={setContactMessage}
+          />
+
+          <Pressable
+            style={[
+              styles.contactButton,
+              sendingContact && { opacity: 0.7 },
+            ]}
+            onPress={handleSendContact}
+            disabled={sendingContact}
+          >
+            <Text style={styles.contactButtonText}>
+              {sendingContact ? "Création..." : "Créer un ticket support"}
+            </Text>
+          </Pressable>
         </View>
 
         <View style={{ height: 140 }} />
@@ -651,7 +739,7 @@ const styles = StyleSheet.create({
   },
   mainButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 
-  /* FAQ / Contact / Tickets */
+  /* FAQ / Contact / Tickets (liens) */
   secondaryButtonsRow: {
     width: "85%",
     flexDirection: "row",
@@ -673,11 +761,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  /* Formulaire contact (en bas) */
   contactCard: {
     width: "90%",
     backgroundColor: "#fff",
     borderRadius: 15,
     padding: 14,
+    marginTop: 10,
     marginBottom: 20,
   },
   contactTitle: {
@@ -749,7 +839,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     width: "90%",
-    marginBottom: 15,
+    marginBottom: 10,
   },
   filter: {
     backgroundColor: "#ddd",
@@ -762,21 +852,54 @@ const styles = StyleSheet.create({
     backgroundColor: "#3E7CB1",
   },
 
-  horizontalScroll: {
-    paddingLeft: 15,
-    paddingRight: 10,
+  /* Toggle vue liste / carte */
+  viewToggleRow: {
+    width: "90%",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 12,
+    gap: 8,
+  },
+  viewToggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#3E7CB1",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  viewToggleBtnActive: {
+    backgroundColor: "#3E7CB1",
+  },
+  viewToggleText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#3E7CB1",
+  },
+  viewToggleTextActive: {
+    color: "#fff",
+    fontWeight: "700",
   },
 
-  espaceCardHorizontal: {
-    width: 170,
+  /* Grille 2 colonnes */
+  gridContainer: {
+    width: "90%",
+    marginBottom: 10,
+  },
+  gridRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  espaceCardVertical: {
+    flex: 1,
     backgroundColor: "#fff",
     padding: 10,
     borderRadius: 12,
-    marginRight: 12,
     position: "relative",
   },
-
-  espaceImageHorizontal: {
+  espaceImageVertical: {
     width: "100%",
     height: 100,
     borderRadius: 10,
@@ -802,13 +925,20 @@ const styles = StyleSheet.create({
   priceSmall: { fontWeight: "700", color: "#3E7CB1" },
   locationSmall: { marginTop: 4, color: "#555", fontSize: 12 },
 
+  emptyText: {
+    textAlign: "center",
+    color: "#555",
+    marginTop: 8,
+    marginBottom: 12,
+  },
+
   mapWrapper: {
     width: "90%",
-    height: 220,
+    height: 280,
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#dcdcdc",
-    marginBottom: 20,
+    marginBottom: 10,
   },
 
   mapEmptyOverlay: {

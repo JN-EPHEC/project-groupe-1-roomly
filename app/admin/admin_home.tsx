@@ -83,7 +83,7 @@ export default function AdminHome() {
             </Text>
           </Pressable>
 
-          {/* 🔹 Nouveau bouton : tickets de support */}
+          {/* Tickets support */}
           <Pressable
             style={styles.actionBtnSecondary}
             onPress={() => router.push("./messages_contact")}
@@ -91,6 +91,26 @@ export default function AdminHome() {
             <Text style={styles.actionTitle}>Tickets support</Text>
             <Text style={styles.actionSubtitle}>
               Voir et traiter les tickets des utilisateurs et entreprises.
+            </Text>
+          </Pressable>
+
+          {/* 🔹 Nouveau : modération des avis */}
+          <Pressable
+            style={styles.actionBtnSecondary}
+            onPress={() => router.push("./moderation_avis")}
+          >
+            <Text style={styles.actionTitle}>Modération des avis</Text>
+            <Text style={styles.actionSubtitle}>
+              Consulter, masquer ou supprimer les avis et commentaires.
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.actionBtnSecondary}
+            onPress={() => router.push("./historique_admin")}
+          >
+            <Text style={styles.actionTitle}>Historique admin</Text>
+            <Text style={styles.actionSubtitle}>
+              Journal complet des actions administratives.
             </Text>
           </Pressable>
         </View>

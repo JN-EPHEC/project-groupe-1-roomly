@@ -449,18 +449,14 @@ export default function EntrepriseProfileScreen() {
               <View style={styles.subDivider} />
 
               <Pressable
-                style={styles.subMenuItem}
-                onPress={() =>
-                  Alert.alert(
-                    "Conditions",
-                    "Conditions d’utilisation & politique de confidentialité (à implémenter)."
-                  )
-                }
-              >
-                <Text style={styles.subMenuText}>
-                  Conditions & confidentialité
-                </Text>
-              </Pressable>
+  style={styles.subMenuItem}
+  onPress={() => router.push("./confidentialite")}
+>
+  <Text style={styles.subMenuText}>
+    Conditions & confidentialité
+  </Text>
+</Pressable>
+
 
               <View style={styles.subDivider} />
 

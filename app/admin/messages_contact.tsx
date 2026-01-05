@@ -20,6 +20,7 @@ import {
     View,
 } from "react-native";
 import { db } from "../../firebaseConfig";
+import { logAdminAction } from "../../utils/adminLogs";
 
 type Ticket = {
   id: string;
@@ -38,6 +39,8 @@ export default function MessagesContactAdmin() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [avgFirstResponseHours, setAvgFirstResponseHours] = useState<number | null>(null);
+
   const loadTickets = async () => {
     try {
       const q = query(
@@ -50,6 +53,29 @@ export default function MessagesContactAdmin() {
         ...(d.data() as any),
       }));
       setTickets(list);
+
+      // Calcul temps moyen de "première réponse" = différence createdAt / lastUpdatedAt
+      const deltas: number[] = [];
+      for (const t of list) {
+        if (!t.createdAt || !t.lastUpdatedAt) continue;
+
+        const created = t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
+        const updated = t.lastUpdatedAt.toDate
+          ? t.lastUpdatedAt.toDate()
+          : new Date(t.lastUpdatedAt);
+
+        const diffMs = updated.getTime() - created.getTime();
+        if (diffMs > 0) {
+          deltas.push(diffMs / (1000 * 60 * 60)); // en heures
+        }
+      }
+
+      if (deltas.length > 0) {
+        const sum = deltas.reduce((a, b) => a + b, 0);
+        setAvgFirstResponseHours(Number((sum / deltas.length).toFixed(1)));
+      } else {
+        setAvgFirstResponseHours(null);
+      }
     } catch (e) {
       console.log("Erreur chargement tickets admin :", e);
     } finally {
@@ -113,11 +139,29 @@ export default function MessagesContactAdmin() {
 
   const handleChangeStatus = async (ticketId: string, newStatus: string) => {
     try {
+      const oldTicket = tickets.find((t) => t.id === ticketId) || null;
+
       setUpdatingId(ticketId);
       await updateDoc(doc(db, "supportTickets", ticketId), {
         status: newStatus,
         lastUpdatedAt: new Date(),
       });
+
+      // 🔹 Log dans l’historique admin
+      await logAdminAction({
+        actionType: "ticket_status_change",
+        targetType: "supportTicket",
+        targetId: ticketId,
+        description: `Changement statut ticket ${ticketId} : ${
+          oldTicket?.status || "inconnu"
+        } → ${newStatus}`,
+        meta: {
+          email: oldTicket?.email || null,
+          fromStatus: oldTicket?.status || null,
+          toStatus: newStatus,
+        },
+      });
+
       await loadTickets();
     } catch (e) {
       console.log("Erreur update statut ticket :", e);
@@ -140,6 +184,16 @@ export default function MessagesContactAdmin() {
         <Text style={styles.subtitle}>
           Messages reçus depuis les formulaires de contact (utilisateurs et entreprises).
         </Text>
+
+        {/* 🔹 Bloc temps moyen de réponse */}
+        <View style={styles.statsCard}>
+          <Text style={styles.statsTitle}>Temps moyen de première réponse</Text>
+          <Text style={styles.statsValue}>
+            {avgFirstResponseHours !== null
+              ? `${avgFirstResponseHours} h`
+              : "Pas encore de données"}
+          </Text>
+        </View>
 
         {loading ? (
           <View style={styles.center}>
@@ -252,6 +306,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#555",
     marginBottom: 16,
+  },
+  statsCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#D6E4F0",
+  },
+  statsTitle: {
+    fontSize: 13,
+    color: "#555",
+    marginBottom: 4,
+  },
+  statsValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1E6091",
   },
   center: {
     marginTop: 30,

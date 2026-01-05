@@ -55,6 +55,9 @@ export default function PaiementScreen() {
   const [discountedTotal, setDiscountedTotal] = useState(totalNumber);
   const [couponMessage, setCouponMessage] = useState<string | null>(null);
 
+  // --- Assurance ---
+  const [insuranceAccepted, setInsuranceAccepted] = useState(false);
+
   /* ------------------------------------------------------------------ */
   /*  APPLIQUER LE CODE PROMO                                           */
   /* ------------------------------------------------------------------ */
@@ -111,14 +114,16 @@ export default function PaiementScreen() {
       }
 
       discountAmount = Number(discountAmount.toFixed(2));
-      const newTotal = Number(Math.max(0, currentTotal - discountAmount).toFixed(2));
+      const newTotal = Number(
+        Math.max(0, currentTotal - discountAmount).toFixed(2)
+      );
 
       setAppliedCoupon({ data, discountAmount });
       setDiscountedTotal(newTotal);
       setCouponMessage(
-        `Code appliqué : -${discountAmount.toFixed(2)}€ (nouveau total ${
-          newTotal.toFixed(2)
-        }€)`
+        `Code appliqué : -${discountAmount.toFixed(2)}€ (nouveau total ${newTotal.toFixed(
+          2
+        )}€)`
       );
     } catch (e) {
       console.log("Erreur code promo:", e);
@@ -132,6 +137,14 @@ export default function PaiementScreen() {
   /*  LOGIQUE RÉSERVATION (Firestore + thread)                          */
   /* ------------------------------------------------------------------ */
   const finaliserReservation = async () => {
+    if (!insuranceAccepted) {
+      Alert.alert(
+        "Conditions d’assurance",
+        "Vous devez accepter les conditions d’assurance avant de finaliser le paiement."
+      );
+      return;
+    }
+
     try {
       const espaceIdStr = String(espaceId);
 
@@ -344,25 +357,64 @@ export default function PaiementScreen() {
         <Text style={styles.couponMessage}>{couponMessage}</Text>
       )}
 
+      {/* Conditions d’assurance */}
+      <View style={styles.insuranceRow}>
+        <Pressable
+          style={[
+            styles.insuranceCheckbox,
+            insuranceAccepted && styles.insuranceCheckboxChecked,
+          ]}
+          onPress={() => setInsuranceAccepted((prev) => !prev)}
+        >
+          {insuranceAccepted && (
+            <Text style={styles.insuranceCheckmark}>✓</Text>
+          )}
+        </Pressable>
+        <Text style={styles.insuranceText}>
+          J’ai lu et j’accepte les{" "}
+          <Text
+            style={styles.insuranceLink}
+            onPress={() => router.push("../conditions_assurance")}
+          >
+            conditions d’assurance
+          </Text>
+          .
+        </Text>
+      </View>
+
       {/* Boutons GPay / ApplePay (non implémentés) */}
       <Pressable
         style={styles.gpay}
-        onPress={() => Alert.alert("Info", "Google Pay non implémenté (MVP).")}
+        onPress={() =>
+          Alert.alert("Info", "Google Pay non implémenté (MVP).")
+        }
       >
         <Text style={styles.gpayText}>Payer avec  G Pay</Text>
       </Pressable>
 
       <Pressable
         style={styles.applePay}
-        onPress={() => Alert.alert("Info", "Apple Pay non implémenté (MVP).")}
+        onPress={() =>
+          Alert.alert("Info", "Apple Pay non implémenté (MVP).")
+        }
       >
         <Text style={styles.applePayText}>Payer avec  Pay</Text>
       </Pressable>
 
       {/* PayPal sandbox */}
       <Pressable
-        style={styles.paypal}
+        style={[
+          styles.paypal,
+          !insuranceAccepted && { opacity: 0.5 },
+        ]}
         onPress={() => {
+          if (!insuranceAccepted) {
+            Alert.alert(
+              "Conditions d’assurance",
+              "Vous devez accepter les conditions d’assurance avant de procéder au paiement."
+            );
+            return;
+          }
           if (!PAYPAL_CLIENT_ID) {
             Alert.alert(
               "Configuration manquante",
@@ -384,8 +436,16 @@ export default function PaiementScreen() {
       </Pressable>
 
       {/* Bouton de secours : mode démo direct */}
-      <Pressable style={styles.demoPay} onPress={finaliserReservation}>
-        <Text style={styles.demoPayText}>Valider sans PayPal (mode démo)</Text>
+      <Pressable
+        style={[
+          styles.demoPay,
+          !insuranceAccepted && { opacity: 0.5 },
+        ]}
+        onPress={finaliserReservation}
+      >
+        <Text style={styles.demoPayText}>
+          Valider sans PayPal (mode démo)
+        </Text>
       </Pressable>
     </ScrollView>
   );
@@ -478,6 +538,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#555",
     marginBottom: 10,
+  },
+
+  // Assurance
+  insuranceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  insuranceCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#3E7CB1",
+    marginRight: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  insuranceCheckboxChecked: {
+    backgroundColor: "#3E7CB1",
+  },
+  insuranceCheckmark: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  insuranceText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#333",
+  },
+  insuranceLink: {
+    color: "#3E7CB1",
+    textDecorationLine: "underline",
+    fontWeight: "600",
   },
 
   gpay: {
