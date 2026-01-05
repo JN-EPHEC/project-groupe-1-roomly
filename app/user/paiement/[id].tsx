@@ -20,6 +20,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
@@ -27,14 +28,105 @@ import { auth, db } from "../../../firebaseConfig";
 
 const PAYPAL_CLIENT_ID = process.env.EXPO_PUBLIC_PAYPAL_CLIENT_ID as string;
 
+type CouponData = {
+  id: string;
+  code: string;
+  discountType: "fixed" | "percent";
+  amount: number;
+  minTotal?: number;
+  active?: boolean;
+};
+
 export default function PaiementScreen() {
   const router = useRouter();
   const { espaceId, date, slots, total } = useLocalSearchParams();
 
   const formattedSlots: string[] = JSON.parse(slots as string);
-  const totalNumber = Number(total || 0);
+  const totalNumber = Number(total || 0); // total initial (sans remise)
 
   const [showPayPal, setShowPayPal] = useState(false);
+
+  // --- Code promo ---
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    data: CouponData;
+    discountAmount: number;
+  } | null>(null);
+  const [discountedTotal, setDiscountedTotal] = useState(totalNumber);
+  const [couponMessage, setCouponMessage] = useState<string | null>(null);
+
+  /* ------------------------------------------------------------------ */
+  /*  APPLIQUER LE CODE PROMO                                           */
+  /* ------------------------------------------------------------------ */
+  const handleApplyCoupon = async () => {
+    const raw = couponCode.trim().toUpperCase();
+    if (!raw) {
+      setCouponMessage("Veuillez entrer un code promo.");
+      setAppliedCoupon(null);
+      setDiscountedTotal(totalNumber);
+      return;
+    }
+
+    try {
+      const qCoupons = query(
+        collection(db, "coupons"),
+        where("code", "==", raw)
+      );
+      const snap = await getDocs(qCoupons);
+
+      if (snap.empty) {
+        setCouponMessage("Code promo invalide.");
+        setAppliedCoupon(null);
+        setDiscountedTotal(totalNumber);
+        return;
+      }
+
+      const docSnap = snap.docs[0];
+      const data = docSnap.data() as CouponData;
+
+      if (data.active === false) {
+        setCouponMessage("Ce code promo n'est plus actif.");
+        setAppliedCoupon(null);
+        setDiscountedTotal(totalNumber);
+        return;
+      }
+
+      const currentTotal = totalNumber;
+
+      if (data.minTotal && currentTotal < data.minTotal) {
+        setCouponMessage(
+          `Montant minimum pour ce code : ${data.minTotal.toFixed(2)}€`
+        );
+        setAppliedCoupon(null);
+        setDiscountedTotal(totalNumber);
+        return;
+      }
+
+      let discountAmount = 0;
+      if (data.discountType === "fixed") {
+        discountAmount = Math.min(data.amount, currentTotal);
+      } else {
+        // percent
+        discountAmount = (currentTotal * data.amount) / 100;
+      }
+
+      discountAmount = Number(discountAmount.toFixed(2));
+      const newTotal = Number(Math.max(0, currentTotal - discountAmount).toFixed(2));
+
+      setAppliedCoupon({ data, discountAmount });
+      setDiscountedTotal(newTotal);
+      setCouponMessage(
+        `Code appliqué : -${discountAmount.toFixed(2)}€ (nouveau total ${
+          newTotal.toFixed(2)
+        }€)`
+      );
+    } catch (e) {
+      console.log("Erreur code promo:", e);
+      setCouponMessage("Erreur lors de la vérification du code.");
+      setAppliedCoupon(null);
+      setDiscountedTotal(totalNumber);
+    }
+  };
 
   /* ------------------------------------------------------------------ */
   /*  LOGIQUE RÉSERVATION (Firestore + thread)                          */
@@ -48,6 +140,9 @@ export default function PaiementScreen() {
 
       const currentUser = auth.currentUser;
 
+      const finalTotal = discountedTotal;
+      const discountAmount = appliedCoupon?.discountAmount || 0;
+
       // 1) Création de la réservation
       const docRef = await addDoc(collection(db, "reservations"), {
         espaceId: espaceIdStr,
@@ -56,7 +151,11 @@ export default function PaiementScreen() {
         userEmail: currentUser?.email || null,
         date,
         slots: formattedSlots,
-        total: totalNumber,
+        // infos de prix
+        total: finalTotal, // total payé après remise
+        totalBeforeDiscount: totalNumber,
+        discountAmount: discountAmount,
+        couponCode: appliedCoupon?.data.code || null,
         createdAt: serverTimestamp(),
         paymentStatus: "paid",
         paymentProvider: "PayPal (sandbox)",
@@ -64,14 +163,14 @@ export default function PaiementScreen() {
 
       // 2) Thread de discussion
       const threadsRef = collection(db, "threads");
-      const q = query(
+      const qThread = query(
         threadsRef,
         where("userId", "==", currentUser?.uid),
         where("entrepriseId", "==", espaceData?.uid),
         where("espaceId", "==", espaceIdStr)
       );
 
-      const threadSnap = await getDocs(q);
+      const threadSnap = await getDocs(qThread);
 
       if (threadSnap.empty) {
         await addDoc(threadsRef, {
@@ -122,7 +221,7 @@ export default function PaiementScreen() {
             createOrder: function(data, actions) {
               return actions.order.create({
                 purchase_units: [{
-                  amount: { value: '${totalNumber.toFixed(2)}' }
+                  amount: { value: '${discountedTotal.toFixed(2)}' }
                 }]
               });
             },
@@ -175,6 +274,8 @@ export default function PaiementScreen() {
   /*  Écran normal : récap + boutons                                    */
   /* ------------------------------------------------------------------ */
 
+  const discountAmount = appliedCoupon?.discountAmount || 0;
+
   return (
     <ScrollView style={styles.container}>
       {/* Logo */}
@@ -207,8 +308,41 @@ export default function PaiementScreen() {
 
       <View style={styles.row}>
         <Text style={styles.label}>Prix total</Text>
-        <Text style={styles.value}>{totalNumber.toFixed(2)} €</Text>
+        {discountAmount > 0 ? (
+          <Text style={styles.value}>
+            {totalNumber.toFixed(2)} € →{" "}
+            <Text style={{ color: "#1E8838", fontWeight: "700" }}>
+              {discountedTotal.toFixed(2)} €
+            </Text>
+          </Text>
+        ) : (
+          <Text style={styles.value}>{totalNumber.toFixed(2)} €</Text>
+        )}
       </View>
+
+      {discountAmount > 0 && appliedCoupon && (
+        <Text style={styles.discountInfo}>
+          Code {appliedCoupon.data.code} : -{discountAmount.toFixed(2)}€
+        </Text>
+      )}
+
+      {/* Code promo */}
+      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Code promo</Text>
+      <View style={styles.couponRow}>
+        <TextInput
+          placeholder="Saisir un code"
+          value={couponCode}
+          onChangeText={setCouponCode}
+          style={styles.couponInput}
+          autoCapitalize="characters"
+        />
+        <Pressable style={styles.couponBtn} onPress={handleApplyCoupon}>
+          <Text style={styles.couponBtnText}>Appliquer</Text>
+        </Pressable>
+      </View>
+      {couponMessage && (
+        <Text style={styles.couponMessage}>{couponMessage}</Text>
+      )}
 
       {/* Boutons GPay / ApplePay (non implémentés) */}
       <Pressable
@@ -250,10 +384,7 @@ export default function PaiementScreen() {
       </Pressable>
 
       {/* Bouton de secours : mode démo direct */}
-      <Pressable
-        style={styles.demoPay}
-        onPress={finaliserReservation}
-      >
+      <Pressable style={styles.demoPay} onPress={finaliserReservation}>
         <Text style={styles.demoPayText}>Valider sans PayPal (mode démo)</Text>
       </Pressable>
     </ScrollView>
@@ -307,6 +438,46 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 16,
     fontWeight: "600",
+  },
+
+  discountInfo: {
+    fontSize: 13,
+    color: "#1E8838",
+    marginBottom: 5,
+  },
+
+  // Code promo
+  couponRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  couponInput: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 8,
+    fontSize: 14,
+  },
+  couponBtn: {
+    backgroundColor: "#3E7CB1",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  couponBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  couponMessage: {
+    fontSize: 12,
+    color: "#555",
+    marginBottom: 10,
   },
 
   gpay: {

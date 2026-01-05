@@ -26,6 +26,14 @@ import { auth, db } from "../../../firebaseConfig";
 
 const { width } = Dimensions.get("window");
 
+const isBoostActive = (espace: any): boolean => {
+  if (!espace?.boostUntil) return false;
+  const d = espace.boostUntil.toDate
+    ? espace.boostUntil.toDate()
+    : new Date(espace.boostUntil);
+  return d.getTime() > Date.now();
+};
+
 export default function DetailsEspaceUtilisateur() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -33,7 +41,6 @@ export default function DetailsEspaceUtilisateur() {
   const [espace, setEspace] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // ⭐ Note moyenne + nombre d’avis pour cet espace
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [ratingCount, setRatingCount] = useState(0);
 
@@ -42,12 +49,10 @@ export default function DetailsEspaceUtilisateur() {
       try {
         if (!id) return;
 
-        // 1) Données de l’espace
         const refDoc = doc(db, "espaces", id as string);
         const snap = await getDoc(refDoc);
         if (snap.exists()) setEspace(snap.data());
 
-        // 2) Avis pour cet espace
         const reviewsRef = collection(db, "reviewsEspaces");
         const q = query(reviewsRef, where("espaceId", "==", id as string));
         const reviewsSnap = await getDocs(q);
@@ -85,9 +90,8 @@ export default function DetailsEspaceUtilisateur() {
     );
   }
 
-  // ---------------------------------------------------
-  // 🔵 Fonction "Contacter" → crée/merge un thread
-  // ---------------------------------------------------
+  const boosted = isBoostActive(espace);
+
   const handleContact = async () => {
     try {
       const uid = auth.currentUser?.uid;
@@ -145,7 +149,14 @@ export default function DetailsEspaceUtilisateur() {
 
         {/* BLOC DESCRIPTION */}
         <View style={styles.card}>
-          <Text style={styles.title}>Détails de l’espace</Text>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={styles.title}>Détails de l’espace</Text>
+            {boosted && (
+              <View style={styles.boostBadge}>
+                <Text style={styles.boostBadgeText}>Top listing</Text>
+              </View>
+            )}
+          </View>
 
           {/* ⭐ Note moyenne */}
           {avgRating !== null ? (
@@ -258,6 +269,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 12,
     color: "#000",
+    flex: 1,
+  },
+
+  boostBadge: {
+    backgroundColor: "#8e44ad",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  boostBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
 
   ratingRow: {

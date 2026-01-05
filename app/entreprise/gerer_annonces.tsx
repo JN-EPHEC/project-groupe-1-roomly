@@ -7,6 +7,7 @@ import {
   doc,
   getDocs,
   query,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import { deleteObject, getStorage, ref } from "firebase/storage";
@@ -38,6 +39,14 @@ const FILTERS: { label: string; value: FilterValue }[] = [
   { label: "Refusés", value: STATUS_REFUSE },
 ];
 
+type BoostType = "24h" | "3j" | "7j";
+
+const BOOST_PRICES: Record<BoostType, number> = {
+  "24h": 1.99,
+  "3j": 2.99,
+  "7j": 4.99,
+};
+
 type Espace = {
   id: string;
   nom?: string;
@@ -46,6 +55,40 @@ type Espace = {
   images?: string[];
   status?: string;
   motifRefus?: string | null;
+
+  boostType?: BoostType | null;
+  boostUntil?: any | null;
+};
+
+const isBoostActive = (e: Espace): boolean => {
+  if (!e.boostUntil) return false;
+  const d = (e.boostUntil as any).toDate
+    ? (e.boostUntil as any).toDate()
+    : new Date(e.boostUntil as any);
+  return d.getTime() > Date.now();
+};
+
+const getBoostRemainingLabel = (e: Espace): string | null => {
+  if (!e.boostUntil) return null;
+  const d = (e.boostUntil as any).toDate
+    ? (e.boostUntil as any).toDate()
+    : new Date(e.boostUntil as any);
+
+  const diffMs = d.getTime() - Date.now();
+  if (diffMs <= 0) return null;
+
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes - days * 60 * 24) / 60);
+  const minutes = totalMinutes - days * 60 * 24 - hours * 60;
+
+  if (days > 0) {
+    return `Boost actif : ${days}j ${hours}h restantes`;
+  }
+  if (hours > 0) {
+    return `Boost actif : ${hours}h ${minutes}min restantes`;
+  }
+  return `Boost actif : ${minutes}min restantes`;
 };
 
 export default function GererAnnoncesScreen() {
@@ -53,6 +96,14 @@ export default function GererAnnoncesScreen() {
   const [loading, setLoading] = useState(true);
   const [espaces, setEspaces] = useState<Espace[]>([]);
   const [filter, setFilter] = useState<FilterValue>("Tous");
+
+  // Modal boost
+  const [boostModalVisible, setBoostModalVisible] = useState(false);
+  const [selectedEspace, setSelectedEspace] = useState<Espace | null>(null);
+  const [boostLoading, setBoostLoading] = useState(false);
+  const [selectedBoostType, setSelectedBoostType] = useState<BoostType | null>(
+    null
+  );
 
   // 🔄 Récupération des annonces de l'entreprise
   useEffect(() => {
@@ -180,6 +231,67 @@ export default function GererAnnoncesScreen() {
     return null;
   };
 
+  const openBoostModal = (espace: Espace) => {
+    setSelectedEspace(espace);
+    setSelectedBoostType(null); // on repart toujours de l'étape 1
+    setBoostModalVisible(true);
+  };
+
+  const closeBoostModal = () => {
+    if (boostLoading) return;
+    setBoostModalVisible(false);
+    setSelectedEspace(null);
+    setSelectedBoostType(null);
+  };
+
+  // Étape "payer" après choix de la durée
+  const handlePayWithPaypalDemo = async () => {
+    if (!selectedEspace || !selectedBoostType) return;
+
+    try {
+      setBoostLoading(true);
+
+      const type = selectedBoostType;
+      const days = type === "24h" ? 1 : type === "3j" ? 3 : 7;
+      const now = new Date();
+      const until = new Date(now.getTime() + days * 24 * 3600 * 1000);
+
+      // Ici on simule le paiement PayPal (demo), puis on applique le boost
+      await updateDoc(doc(db, "espaces", selectedEspace.id), {
+        boostType: type,
+        boostUntil: until,
+      });
+
+      setEspaces((prev) =>
+        prev.map((e) =>
+          e.id === selectedEspace.id
+            ? { ...e, boostType: type, boostUntil: until }
+            : e
+        )
+      );
+
+      Alert.alert(
+        "Boost activé",
+        `Annonce boostée pour ${
+          type === "24h" ? "24 heures" : type === "3j" ? "3 jours" : "7 jours"
+        }.`
+      );
+      closeBoostModal();
+    } catch (e) {
+      console.log("Erreur boost :", e);
+      Alert.alert("Erreur", "Impossible d’activer le boost pour le moment.");
+      setBoostLoading(false);
+    } finally {
+      setBoostLoading(false);
+    }
+  };
+
+  const getBoostLabelForType = (type: BoostType): string => {
+    if (type === "24h") return "24 heures";
+    if (type === "3j") return "3 jours";
+    return "7 jours";
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -213,69 +325,201 @@ export default function GererAnnoncesScreen() {
         ) : espacesFiltres.length === 0 ? (
           <Text style={{ marginTop: 20 }}>Aucune annonce pour ce filtre.</Text>
         ) : (
-          espacesFiltres.map((espace) => (
-            <View key={espace.id} style={styles.card}>
-              {/* Image */}
-              <Image
-                source={
-                  espace.images?.[0]
-                    ? { uri: espace.images[0] }
-                    : require("../../assets/images/roomly-logo.png")
-                }
-                style={styles.image}
-              />
+          espacesFiltres.map((espace) => {
+            const boosted = isBoostActive(espace);
+            const remainingLabel = boosted
+              ? getBoostRemainingLabel(espace)
+              : null;
 
-              {/* Infos */}
-              <View style={styles.info}>
-                <Text style={styles.localisation}>
-                  {espace.nom || espace.localisation || "Espace"}
-                </Text>
-                <Text style={styles.prix}>{espace.prix} €/h</Text>
-
-                {/* Statut */}
-                {renderStatusBadge(espace.status)}
-
-                {/* Motif de refus */}
-                {espace.status === STATUS_REFUSE && espace.motifRefus ? (
-                  <Text style={styles.motifRefus}>
-                    Motif du refus : {espace.motifRefus}
-                  </Text>
-                ) : null}
-              </View>
-
-              {/* Boutons gestion */}
-              <View style={styles.buttons}>
-                <Pressable
-                  style={styles.actionBtn}
-                  onPress={() =>
-                    router.push(`/entreprise/details_espace/${espace.id}`)
+            return (
+              <View key={espace.id} style={styles.card}>
+                {/* Image */}
+                <Image
+                  source={
+                    espace.images?.[0]
+                      ? { uri: espace.images[0] }
+                      : require("../../assets/images/roomly-logo.png")
                   }
-                >
-                  <Ionicons name="eye-outline" size={22} color="#3E7CB1" />
-                </Pressable>
+                  style={styles.image}
+                />
 
-                <Pressable
-                  style={styles.actionBtn}
-                  onPress={() =>
-                    router.push(`/entreprise/editer_espace/${espace.id}`)
-                  }
-                >
-                  <Ionicons name="create-outline" size={22} color="#F49B0B" />
-                </Pressable>
+                {/* Infos */}
+                <View style={styles.info}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={styles.localisation}>
+                      {espace.nom || espace.localisation || "Espace"}
+                    </Text>
+                    {boosted && (
+                      <View style={styles.boostBadge}>
+                        <Text style={styles.boostBadgeText}>Top listing</Text>
+                      </View>
+                    )}
+                  </View>
 
-                <Pressable
-                  style={styles.actionBtn}
-                  onPress={() => supprimerAnnonce(espace.id, espace.images)}
-                >
-                  <Ionicons name="trash-outline" size={22} color="#C0392B" />
-                </Pressable>
+                  <Text style={styles.prix}>{espace.prix} €/h</Text>
+
+                  {/* Statut */}
+                  {renderStatusBadge(espace.status)}
+
+                  {/* Temps restant du boost */}
+                  {remainingLabel && (
+                    <Text style={styles.remainingText}>{remainingLabel}</Text>
+                  )}
+
+                  {/* Motif de refus */}
+                  {espace.status === STATUS_REFUSE && espace.motifRefus ? (
+                    <Text style={styles.motifRefus}>
+                      Motif du refus : {espace.motifRefus}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {/* Boutons gestion */}
+                <View style={styles.buttons}>
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() =>
+                      router.push(`/entreprise/details_espace/${espace.id}`)
+                    }
+                  >
+                    <Ionicons name="eye-outline" size={22} color="#3E7CB1" />
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() =>
+                      router.push(`/entreprise/editer_espace/${espace.id}`)
+                    }
+                  >
+                    <Ionicons name="create-outline" size={22} color="#F49B0B" />
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() => supprimerAnnonce(espace.id, espace.images)}
+                  >
+                    <Ionicons name="trash-outline" size={22} color="#C0392B" />
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() => openBoostModal(espace)}
+                  >
+                    <Ionicons name="flash-outline" size={22} color="#8e44ad" />
+                  </Pressable>
+                </View>
               </View>
-            </View>
-          ))
+            );
+          })
         )}
 
         <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* MODAL BOOST */}
+      {boostModalVisible && selectedEspace && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Booster l’annonce</Text>
+            <Text style={styles.modalSubtitle}>
+              {selectedEspace.nom ||
+                selectedEspace.localisation ||
+                "Espace"}
+            </Text>
+
+            {!selectedBoostType ? (
+              <>
+                <Text style={styles.modalHint}>
+                  Choisissez la durée de mise en avant :
+                </Text>
+
+                <Pressable
+                  style={styles.modalOption}
+                  disabled={boostLoading}
+                  onPress={() => setSelectedBoostType("24h")}
+                >
+                  <Text style={styles.modalOptionText}>
+                    24 heures – {BOOST_PRICES["24h"].toFixed(2)} €
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.modalOption}
+                  disabled={boostLoading}
+                  onPress={() => setSelectedBoostType("3j")}
+                >
+                  <Text style={styles.modalOptionText}>
+                    3 jours – {BOOST_PRICES["3j"].toFixed(2)} €
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.modalOption}
+                  disabled={boostLoading}
+                  onPress={() => setSelectedBoostType("7j")}
+                >
+                  <Text style={styles.modalOptionText}>
+                    7 jours – {BOOST_PRICES["7j"].toFixed(2)} €
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.modalCancel, boostLoading && { opacity: 0.6 }]}
+                  disabled={boostLoading}
+                  onPress={closeBoostModal}
+                >
+                  <Text style={styles.modalCancelText}>Annuler</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalHint}>
+                  Récapitulatif de votre boost :
+                </Text>
+                <Text style={styles.modalRecapText}>
+                  Durée : {getBoostLabelForType(selectedBoostType)}
+                </Text>
+                <Text style={styles.modalRecapText}>
+                  Prix : {BOOST_PRICES[selectedBoostType].toFixed(2)} €
+                </Text>
+
+                <Pressable
+                  style={[
+                    styles.modalPaypalBtn,
+                    boostLoading && { opacity: 0.7 },
+                  ]}
+                  disabled={boostLoading}
+                  onPress={handlePayWithPaypalDemo}
+                >
+                  {boostLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalPaypalText}>
+                      Payer avec PayPal (demo)
+                    </Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={styles.modalSecondary}
+                  disabled={boostLoading}
+                  onPress={() => setSelectedBoostType(null)}
+                >
+                  <Text style={styles.modalSecondaryText}>Retour</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.modalCancel, boostLoading && { opacity: 0.6 }]}
+                  disabled={boostLoading}
+                  onPress={closeBoostModal}
+                >
+                  <Text style={styles.modalCancelText}>Annuler</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      )}
 
       <BottomNavBarEntreprise activeTab="annonces" />
     </View>
@@ -361,6 +605,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
+    marginRight: 8,
   },
 
   prix: {
@@ -391,6 +636,24 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  boostBadge: {
+    backgroundColor: "#8e44ad",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  boostBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  remainingText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#8e44ad",
+  },
+
   motifRefus: {
     marginTop: 4,
     fontSize: 12,
@@ -405,5 +668,83 @@ const styles = StyleSheet.create({
   actionBtn: {
     padding: 6,
     marginLeft: 8,
+  },
+
+  /* Modal boost */
+  modalOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCard: {
+    width: "80%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  modalHint: {
+    fontSize: 13,
+    color: "#555",
+    marginBottom: 12,
+  },
+  modalOption: {
+    backgroundColor: "#EEF3F8",
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  modalOptionText: {
+    textAlign: "center",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  modalCancel: {
+    marginTop: 6,
+    paddingVertical: 10,
+  },
+  modalCancelText: {
+    textAlign: "center",
+    fontSize: 14,
+    color: "#c0392b",
+    fontWeight: "600",
+  },
+  modalRecapText: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  modalPaypalBtn: {
+    marginTop: 12,
+    backgroundColor: "#0070ba",
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  modalPaypalText: {
+    color: "#fff",
+    fontWeight: "700",
+    textAlign: "center",
+    fontSize: 14,
+  },
+  modalSecondary: {
+    marginTop: 8,
+    paddingVertical: 8,
+  },
+  modalSecondaryText: {
+    textAlign: "center",
+    fontSize: 13,
+    color: "#555",
   },
 });

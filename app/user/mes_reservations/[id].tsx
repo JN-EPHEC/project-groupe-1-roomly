@@ -5,7 +5,8 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   Image,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +21,47 @@ import { auth, db } from "../../../firebaseConfig";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 
+/* ---------- CONST + HELPER POUR 24H AVANT ---------- */
+
+const MS_24H = 24 * 60 * 60 * 1000;
+
+function getReservationStartDate(resa: any): Date | null {
+  if (!resa?.date || !resa?.slots || resa.slots.length === 0) return null;
+
+  const d = new Date(resa.date);
+  if (isNaN(d.getTime())) return null;
+
+  const firstSlot = String(resa.slots[0]);
+  const startPart = firstSlot.split("-")[0].trim();
+  const [hStr, mStr] = startPart.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr || 0);
+  if (isNaN(h) || isNaN(m)) return null;
+
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
+// fin de réservation = fin du dernier créneau
+function getReservationEndDate(resa: any): Date | null {
+  if (!resa?.date || !resa?.slots || resa.slots.length === 0) return null;
+
+  const d = new Date(resa.date);
+  if (isNaN(d.getTime())) return null;
+
+  const lastSlot = String(resa.slots[resa.slots.length - 1]);
+  const endPart = lastSlot.split("-")[1]?.trim();
+  if (!endPart) return null;
+
+  const [hStr, mStr] = endPart.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr || 0);
+  if (isNaN(h) || isNaN(m)) return null;
+
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
 export default function ReservationDetail() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -33,6 +75,9 @@ export default function ReservationDetail() {
   const [loadingReview, setLoadingReview] = useState(true);
   const [existingReview, setExistingReview] = useState<any>(null);
 
+  // 💶 IBAN pour remboursement manuel
+  const [refundIban, setRefundIban] = useState("");
+
   /* ---------------- LOAD DATA ---------------- */
   useEffect(() => {
     const load = async () => {
@@ -41,10 +86,13 @@ export default function ReservationDetail() {
       const data = snap.data();
       setReservation(data);
 
+      if (data.refundIban) {
+        setRefundIban(data.refundIban as string);
+      }
+
       const espaceSnap = await getDoc(doc(db, "espaces", data.espaceId));
       if (espaceSnap.exists()) setEspace(espaceSnap.data());
 
-      // 🔸 Charger un éventuel avis existant
       const reviewRef = doc(db, "reviewsEspaces", id as string);
       const reviewSnap = await getDoc(reviewRef);
       if (reviewSnap.exists()) {
@@ -67,9 +115,38 @@ export default function ReservationDetail() {
     );
   }
 
+  /* ---------- CALCUL 24H AVANT + RÉSA PASSÉE ---------- */
+
+  const startDate = getReservationStartDate(reservation);
+  const endDate = getReservationEndDate(reservation);
+  const now = new Date();
+
+  const diffMs = startDate ? startDate.getTime() - now.getTime() : -1;
+  const canCancel = diffMs >= MS_24H && reservation.status !== "annulée";
+
+  const isPastReservation =
+    !!endDate && endDate.getTime() < now.getTime(); // terminé
+
+  /* ---------- COUPON / RÉDUCTION ---------- */
+
+  const totalFinal = Number(reservation.total || 0);
+  const totalBefore = Number(
+    reservation.totalBeforeDiscount ?? reservation.total ?? 0
+  );
+  const discountAmount =
+    typeof reservation.discountAmount === "number"
+      ? Number(reservation.discountAmount)
+      : Math.max(0, totalBefore - totalFinal);
+
+  const hasDiscount =
+    !!reservation.couponCode &&
+    discountAmount > 0 &&
+    totalBefore > totalFinal + 0.001;
+
   /* ------------------------------------------------------------- */
   /* ---------------------- FACTURE PDF --------------------------- */
   /* ------------------------------------------------------------- */
+
   const userName = auth.currentUser?.displayName || "Client Roomly";
   const espaceNom = espace?.nom || "Espace Roomly";
   const espaceAdresse =
@@ -78,7 +155,9 @@ export default function ReservationDetail() {
     espace?.accessDetails ||
     "Les informations d’accès détaillées vous seront envoyées par email avant votre réservation.";
 
-  const totalTTC = Number(reservation.total || 0);
+  const accessCode = reservation.accessCode || "—";
+
+  const totalTTC = totalFinal;
   const htva = +(totalTTC / 1.21).toFixed(2);
   const tva = +(totalTTC - htva).toFixed(2);
 
@@ -111,15 +190,9 @@ export default function ReservationDetail() {
       <meta charset="utf-8" />
       <title>Facture Roomly</title>
       <style>
-        .brand-logo {
-          text-align:center;
-          margin-bottom: 12px;
-        }
-        .brand-logo img {
-          width: 160px;
-        }
+        .brand-logo { text-align:center; margin-bottom: 12px; }
+        .brand-logo img { width: 160px; }
         body { font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; margin: 40px; color: #222; }
-        h1 { text-align: center; margin-bottom: 30px; }
         .header-block { margin-bottom: 25px; }
         .small { font-size: 12px; }
         .bold { font-weight: 600; }
@@ -128,16 +201,6 @@ export default function ReservationDetail() {
         th, td { border: 1px solid #ccc; padding: 6px 8px; }
         th { background-color: #f2f2f2; text-align: left; }
         .right { text-align: right; }
-        .mt-2 { margin-top: 8px; }
-        .mt-4 { margin-top: 16px; }
-        .mt-6 { margin-top: 24px; }
-        .footer-logo {
-          position: absolute;
-          bottom: 20px;
-          right: 20px;
-          opacity: 0.15;
-        }
-        .footer-logo img { width: 80px; }
       </style>
     </head>
     <body>
@@ -189,6 +252,17 @@ export default function ReservationDetail() {
         </tbody>
       </table>
 
+      <div class="section-title">Code d’accès au bâtiment</div>
+      <div class="small">
+        Code à saisir sur le boîtier à l’entrée :
+        <span class="bold">${accessCode}</span>
+      </div>
+
+      <div class="section-title">Détails d’accès</div>
+      <div class="small">
+        ${accessDetails.replace(/\n/g, "<br/>")}
+      </div>
+
       <div class="section-title">Récapitulatif</div>
       <table>
         <tbody>
@@ -222,11 +296,11 @@ export default function ReservationDetail() {
         Pour toute question, contactez support@roomly.be.
       </div>
 
-      <div class="mt-6 small">
+      <div class="small" style="margin-top:24px;">
         Merci d’avoir choisi Roomly !
       </div>
-      <div class="footer-logo">
-        <img src="${logoSmall}" />
+      <div style="position:absolute;bottom:20px;right:20px;opacity:0.15;">
+        <img src="${logoSmall}" width="80" />
       </div>
     </body>
     </html>
@@ -244,6 +318,51 @@ export default function ReservationDetail() {
     }
   };
 
+  /* -------------------- ANNULATION + DEMANDE DE REMBOURSEMENT -------------------- */
+
+  const handleCancelReservation = async () => {
+    if (!canCancel) {
+      alert(
+        "Vous ne pouvez plus annuler cette réservation (moins de 24h avant le début)."
+      );
+      return;
+    }
+
+    if (!refundIban.trim()) {
+      alert(
+        "Veuillez renseigner votre IBAN (BE...) pour que l’entreprise puisse vous rembourser manuellement."
+      );
+      return;
+    }
+
+    try {
+      await setDoc(
+        doc(db, "reservations", id as string),
+        {
+          status: "annulée",
+          cancelledAt: new Date(),
+          paymentStatus: "refund_requested",
+          refundIban: refundIban.trim(),
+        },
+        { merge: true }
+      );
+
+      setReservation((prev: any) => ({
+        ...prev,
+        status: "annulée",
+        paymentStatus: "refund_requested",
+        refundIban: refundIban.trim(),
+      }));
+
+      alert(
+        "Réservation annulée. Un remboursement manuel sera effectué par l’entreprise sur l’IBAN fourni."
+      );
+    } catch (e) {
+      console.log("Erreur annulation :", e);
+      alert("Impossible d’annuler la réservation.");
+    }
+  };
+
   /* -------------------- SAUVEGARDE AVIS -------------------- */
 
   const handleSaveReview = async () => {
@@ -251,6 +370,14 @@ export default function ReservationDetail() {
       alert("Vous devez être connecté pour laisser un avis.");
       return;
     }
+
+    if (!isPastReservation) {
+      alert(
+        "Vous pourrez laisser un avis une fois votre réservation terminée."
+      );
+      return;
+    }
+
     if (rating < 1 || rating > 5) {
       alert("Choisissez une note entre 1 et 5 étoiles.");
       return;
@@ -283,102 +410,195 @@ export default function ReservationDetail() {
 
   return (
     <KeyboardAvoidingView
-    style={{ flex: 1 }}
-    behavior={Platform.OS === "ios" ? "padding" : undefined}>
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* HEADER */}
-        <View style={styles.header}>
-          <Pressable
-            style={styles.backButton}
-            onPress={() => router.push("/user/mes_reservations/liste")}
-          >
-            <Text style={styles.backIcon}>‹</Text>
-          </Pressable>
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.content}>
+          {/* HEADER */}
+          <View style={styles.header}>
+            <Pressable
+              style={styles.backButton}
+              onPress={() => router.push("/user/mes_reservations/liste")}
+            >
+              <Text style={styles.backIcon}>‹</Text>
+            </Pressable>
 
-          <Image
-            source={require("../../../assets/images/roomly-logo.png")}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-        </View>
+          ...
 
-        <Text style={styles.title}>Détails de la réservation</Text>
 
-        {espace.images?.[0] && (
-          <Image source={{ uri: espace.images[0] }} style={styles.mainImage} />
-        )}
+            <Image
+              source={require("../../../assets/images/roomly-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
 
-        <Text style={styles.espaceName}>{espace.nom}</Text>
-        <Text style={styles.address}>{espace.localisation}</Text>
+          <Text style={styles.title}>Détails de la réservation</Text>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Votre réservation</Text>
-          <Text> {reservation.date}</Text>
-          <Text> {reservation.slots.join(", ")}</Text>
-          <Text> Total payé : {reservation.total}€</Text>
-        </View>
+          {espace.images?.[0] && (
+            <Image source={{ uri: espace.images[0] }} style={styles.mainImage} />
+          )}
 
-        <View style={{ height: 20 }} />
+          <Text style={styles.espaceName}>{espace.nom}</Text>
+          <Text style={styles.address}>{espace.localisation}</Text>
 
-        {/* Lien facture */}
-        <Pressable onPress={handleDownloadInvoice}>
-          <Text style={styles.downloadLink}>Télécharger la facture</Text>
-        </Pressable>
+          {/* Carte principale réservation */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Votre réservation</Text>
+            <Text>Date : {reservation.date}</Text>
+            <Text>Heure : {reservation.slots.join(", ")}</Text>
 
-        <View style={{ height: 20 }} />
+            {hasDiscount ? (
+              <>
+                <Text style={{ marginTop: 6 }}>
+                  Total initial : {totalBefore.toFixed(2)}€
+                </Text>
+                <Text>
+                  Réduction : -{discountAmount.toFixed(2)}€
+                  {reservation.couponCode
+                    ? `  (code ${reservation.couponCode})`
+                    : ""}
+                </Text>
+                <Text style={{ fontWeight: "700", marginTop: 2 }}>
+                  Total payé : {totalFinal.toFixed(2)}€
+                </Text>
+              </>
+            ) : (
+              <Text style={{ marginTop: 6 }}>
+                Total payé : {totalFinal.toFixed(2)}€
+              </Text>
+            )}
 
-        {/* ------ AVIS UTILISATEUR SUR L'ESPACE ------ */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            {existingReview ? "Votre avis" : "Laisser un avis"}
-          </Text>
+            <Text style={{ marginTop: 8 }}>
+              Code d’accès :{" "}
+              <Text style={{ fontWeight: "700" }}>{accessCode}</Text>
+            </Text>
+            <Text style={{ marginTop: 6 }}>
+              Détails d’accès :{" "}
+              <Text style={{ fontWeight: "500" }}>{accessDetails}</Text>
+            </Text>
+          </View>
 
-          {loadingReview ? (
-            <Text>Chargement de vos avis...</Text>
-          ) : (
-            <>
-              {/* Étoiles */}
-              <View style={styles.starsRow}>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <Pressable key={i} onPress={() => setRating(i)}>
-                    <Ionicons
-                      name={i <= rating ? "star" : "star-outline"}
-                      size={24}
-                      color="#F5A623"
-                    />
-                  </Pressable>
-                ))}
-              </View>
+          <View style={{ height: 20 }} />
 
-              {/* Commentaire */}
+          {/* Bloc IBAN pour remboursement */}
+          {reservation.status !== "annulée" && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>
+                Coordonnées pour remboursement
+              </Text>
+              <Text style={{ marginBottom: 6 }}>
+                En cas d’annulation, l’entreprise utilisera cet IBAN pour vous
+                rembourser manuellement.
+              </Text>
               <TextInput
-                placeholder="Ajouter un commentaire (optionnel)"
-                value={comment}
-                onChangeText={setComment}
-                style={styles.commentInput}
-                multiline
+                style={styles.ibanInput}
+                placeholder="IBAN (ex: BE12 3456 7890 1234)"
+                value={refundIban}
+                onChangeText={setRefundIban}
+                autoCapitalize="characters"
               />
+            </View>
+          )}
 
+          <View style={{ height: 10 }} />
+
+          {/* Statut / bouton annulation */}
+          {reservation.status === "annulée" ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Statut</Text>
+              <Text style={{ color: "#c0392b", fontWeight: "700" }}>
+                Réservation annulée
+              </Text>
+              {reservation.paymentStatus && (
+                <Text style={{ marginTop: 4 }}>
+                  Statut paiement : {reservation.paymentStatus}
+                </Text>
+              )}
+              {reservation.refundIban && (
+                <Text style={{ marginTop: 4 }}>
+                  IBAN pour remboursement : {reservation.refundIban}
+                </Text>
+              )}
+            </View>
+          ) : (
+            canCancel && (
               <Pressable
-                style={styles.saveReviewButton}
-                onPress={handleSaveReview}
+                style={styles.cancelButton}
+                onPress={handleCancelReservation}
               >
-                <Text style={styles.saveReviewText}>
-                  {existingReview
-                    ? "Mettre à jour mon avis"
-                    : "Enregistrer mon avis"}
+                <Text style={styles.cancelButtonText}>
+                  Annuler la réservation
                 </Text>
               </Pressable>
-            </>
+            )
           )}
-        </View>
 
-        <View style={{ height: 120 }} />
-      </ScrollView>
+          <View style={{ height: 20 }} />
 
-      <BottomNavBar activeTab="reservations" />
-    </View>
+          {/* Lien facture */}
+          <Pressable onPress={handleDownloadInvoice}>
+            <Text style={styles.downloadLink}>Télécharger la facture</Text>
+          </Pressable>
+
+          <View style={{ height: 20 }} />
+
+                    {/* ------ AVIS UTILISATEUR SUR L'ESPACE ------ */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {existingReview ? "Votre avis" : "Laisser un avis"}
+            </Text>
+
+            {loadingReview ? (
+              <Text>Chargement de vos avis...</Text>
+            ) : !isPastReservation && !existingReview ? (
+              <Text style={{ fontSize: 14, color: "#555" }}>
+                Vous pourrez noter cet espace une fois votre réservation
+                terminée. N’oubliez pas de revenir laisser votre avis !
+              </Text>
+            ) : (
+              <>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Pressable key={i} onPress={() => setRating(i)}>
+                      <Ionicons
+                        name={i <= rating ? "star" : "star-outline"}
+                        size={24}
+                        color="#F5A623"
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+
+                <TextInput
+                  placeholder="Ajouter un commentaire (optionnel)"
+                  value={comment}
+                  onChangeText={setComment}
+                  style={styles.commentInput}
+                  multiline
+                />
+
+                <Pressable
+                  style={styles.saveReviewButton}
+                  onPress={handleSaveReview}
+                >
+                  <Text style={styles.saveReviewText}>
+                    {existingReview
+                      ? "Mettre à jour mon avis"
+                      : "Enregistrer mon avis"}
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
+
+          <View style={{ height: 120 }} />
+        </ScrollView>
+
+        <BottomNavBar activeTab="reservations" />
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -464,5 +684,32 @@ const styles = StyleSheet.create({
   saveReviewText: {
     color: "#fff",
     fontWeight: "700",
+  },
+
+  // IBAN
+  ibanInput: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    backgroundColor: "#F4F4F4",
+  },
+
+  // Annulation
+  cancelButton: {
+    width: "90%",
+    backgroundColor: "#e74c3c",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  cancelButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
 });

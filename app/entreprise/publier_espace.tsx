@@ -48,6 +48,10 @@ export default function PublierEspaceScreen() {
 
   const [publishing, setPublishing] = useState(false);
 
+  // calendrier simple pour choisir la date des créneaux
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
   // ---------------------- IMAGES ----------------------
   const pickImage = async (index: number) => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -127,6 +131,26 @@ export default function PublierEspaceScreen() {
     setTimeSlots((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // ------ calendrier pour choisir la dateInput ------
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+  const first = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const changeMonth = (direction: number) => {
+    const newMonth = new Date(year, month + direction, 1);
+    setCurrentMonth(newMonth);
+  };
+
+  const handleSelectCalendarDay = (day: number) => {
+    const dayStr = String(day).padStart(2, "0");
+    const monthStr = String(month + 1).padStart(2, "0");
+    const yearStr = String(year);
+    const formatted = `${dayStr}/${monthStr}/${yearStr}`;
+    setDateInput(formatted);
+    setShowCalendar(false);
+  };
+
   // ------------------ PUBLIER ------------------
   const publierAnnonce = async () => {
     try {
@@ -135,10 +159,8 @@ export default function PublierEspaceScreen() {
 
       setPublishing(true);
 
-      // 1) upload images
       const urls = await uploadImages();
 
-      // 2) geocode localisation -> latitude/longitude
       const coords = await geocodeAddress(localisation);
       if (!coords) {
         Alert.alert(
@@ -148,7 +170,6 @@ export default function PublierEspaceScreen() {
         return;
       }
 
-      // 3) write firestore
       await addDoc(collection(db, "espaces"), {
         uid: auth.currentUser.uid,
         nom: description.substring(0, 20) || "Espace",
@@ -166,6 +187,10 @@ export default function PublierEspaceScreen() {
         popularity: 0,
         type: "bureau",
         status: "en attente de validation",
+
+        // 🔹 champs boost initialisés
+        boostType: null,
+        boostUntil: null,
       });
 
       Alert.alert("OK", "Annonce publiée !");
@@ -258,10 +283,26 @@ export default function PublierEspaceScreen() {
           multiline
         />
 
-        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>
-          Disponibilités
-        </Text>
+        {/* HEADER dispo + bouton calendrier */}
+        <View
+          style={{
+            width: "90%",
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginTop: 10,
+            marginBottom: 4,
+          }}
+        >
+          <Text style={styles.sectionTitle}>Disponibilités</Text>
+          <Pressable onPress={() => setShowCalendar((v) => !v)}>
+            <Text style={styles.calendarLink}>
+              {showCalendar ? "Fermer le calendrier" : "Choisir via le calendrier"}
+            </Text>
+          </Pressable>
+        </View>
 
+        {/* Champ date + heures (toujours là) */}
         <View style={styles.slotInputsRow}>
           <TextInput
             style={[styles.input, styles.slotInput]}
@@ -270,6 +311,57 @@ export default function PublierEspaceScreen() {
             onChangeText={setDateInput}
           />
         </View>
+
+        {/* Calendrier visible seulement si showCalendar = true */}
+        {showCalendar && (
+          <View style={styles.calendarContainer}>
+            <View style={styles.monthRow}>
+              <Pressable onPress={() => changeMonth(-1)}>
+                <Text style={styles.arrow}>«</Text>
+              </Pressable>
+
+              <Text style={styles.monthTitle}>
+                {currentMonth.toLocaleString("fr-FR", {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </Text>
+
+              <Pressable onPress={() => changeMonth(1)}>
+                <Text style={styles.arrow}>»</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.weekHeader}>
+              {["lu", "ma", "me", "je", "ve", "sa", "di"].map((d) => (
+                <Text key={d} style={styles.weekDay}>
+                  {d}
+                </Text>
+              ))}
+            </View>
+
+            <View style={styles.daysGrid}>
+              {Array.from({ length: first === 0 ? 6 : first - 1 }).map(
+                (_, i) => (
+                  <View key={i} style={styles.dayEmpty} />
+                )
+              )}
+
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1;
+                return (
+                  <Pressable
+                    key={day}
+                    style={styles.day}
+                    onPress={() => handleSelectCalendarDay(day)}
+                  >
+                    <Text style={styles.dayText}>{day}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={styles.slotInputsRow}>
           <TextInput
@@ -338,7 +430,6 @@ const styles = StyleSheet.create({
   scrollContent: { paddingTop: 20, paddingBottom: 140, alignItems: "center" },
   logo: { width: 200, height: 90, marginBottom: 20 },
   sectionTitle: {
-    width: "90%",
     fontSize: 18,
     fontWeight: "600",
     marginBottom: 10,
@@ -415,4 +506,50 @@ const styles = StyleSheet.create({
   },
   slotMainText: { fontSize: 14, fontWeight: "600" },
   slotSubText: { fontSize: 13, color: "#333" },
+
+  // calendrier
+  calendarLink: {
+    color: "#3E7CB1",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  calendarContainer: {
+    width: "90%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+  monthRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  arrow: { fontSize: 22, paddingHorizontal: 8 },
+  monthTitle: { fontSize: 16, fontWeight: "700" },
+  weekHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  weekDay: { width: 32, textAlign: "center", fontWeight: "600" },
+  daysGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 6,
+  },
+  dayEmpty: {
+    width: "14.28%",
+    aspectRatio: 1,
+  },
+  day: {
+    width: "14.28%",
+    aspectRatio: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 8,
+    marginVertical: 3,
+  },
+  dayText: { fontSize: 14 },
 });

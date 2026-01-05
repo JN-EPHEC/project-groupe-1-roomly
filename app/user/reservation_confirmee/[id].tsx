@@ -3,7 +3,15 @@ import * as MailComposer from "expo-mail-composer";
 import * as Print from "expo-print";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -23,20 +31,56 @@ export default function ReservationConfirmee() {
 
   const [reservation, setReservation] = useState<any>(null);
   const [espace, setEspace] = useState<any>(null);
+  const [accessCode, setAccessCode] = useState<string | null>(null);
+
+  // --------- helpers code d'accès ----------
+  const generate4DigitCode = () =>
+    Math.floor(1000 + Math.random() * 9000).toString();
+
+  const getUniqueAccessCode = async (): Promise<string> => {
+    while (true) {
+      const candidate = generate4DigitCode();
+      const q = query(
+        collection(db, "reservations"),
+        where("accessCode", "==", candidate)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) return candidate; // personne ne l'utilise
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
-      const snap = await getDoc(doc(db, "reservations", id as string));
+      if (!id) return;
+
+      const ref = doc(db, "reservations", id as string);
+      const snap = await getDoc(ref);
       if (!snap.exists()) return;
 
-      const data = snap.data();
+      const data = snap.data() as any;
       setReservation(data);
 
+      // charger l'espace
       if (data.espaceId) {
         const espaceSnap = await getDoc(doc(db, "espaces", data.espaceId));
         if (espaceSnap.exists()) setEspace(espaceSnap.data());
       }
+
+      // gérer le code d'accès
+      try {
+        let code = data.accessCode as string | undefined;
+
+        if (!code) {
+          code = await getUniqueAccessCode();
+          await updateDoc(ref, { accessCode: code });
+        }
+
+        setAccessCode(code);
+      } catch (e) {
+        console.log("Erreur génération/sauvegarde code d'accès :", e);
+      }
     };
+
     load();
   }, [id]);
 
@@ -67,6 +111,7 @@ export default function ReservationConfirmee() {
   };
 
   const resaDateFR = formatDateFR(reservation.date);
+  const codeAffiche = accessCode || reservation.accessCode || "—";
 
   /* ---------- TEMPLATE FACTURE ---------- */
   const buildInvoiceHTML_FigmaLike = () => {
@@ -144,6 +189,11 @@ export default function ReservationConfirmee() {
         </tbody>
       </table>
 
+      <div class="section-title">Code d’accès au bâtiment</div>
+      <div class="small">
+        Code à saisir sur le boîtier à l’entrée : <span class="bold">${codeAffiche}</span>
+      </div>
+
       <div class="section-title">Récapitulatif</div>
       <table>
         <tbody>
@@ -177,7 +227,7 @@ export default function ReservationConfirmee() {
         Pour toute question, contactez support@roomly.be.
       </div>
 
-      <div class="mt-6 small">
+      <div class="small" style="margin-top:24px;">
         Merci d’avoir choisi Roomly !
       </div>
     </body>
@@ -220,8 +270,9 @@ Adresse : ${espaceAdresse}
 Date : ${resaDateFR}
 Heures : ${reservation.slots.join(", ")}
 Montant payé : ${totalTTC.toFixed(2)} €
+Code d’accès bâtiment : ${codeAffiche}
 
-Vous pouvez retrouver le détail de votre réservation et télécharger votre facture depuis l’app Roomly.
+Vous pouvez retrouver le détail de votre réservation, votre code d’accès et télécharger votre facture depuis l’app Roomly.
 
 Merci pour votre confiance,
 L’équipe Roomly
@@ -265,6 +316,17 @@ L’équipe Roomly
           Votre bureau est réservé avec succès.
         </Text>
 
+        {/* CODE D'ACCES */}
+        <View style={styles.codeBox}>
+          <Text style={styles.codeLabel}>Votre code d’accès au bâtiment</Text>
+          <Text style={styles.codeValue}>
+            {codeAffiche !== "—" ? codeAffiche : "Génération en cours..."}
+          </Text>
+          <Text style={styles.codeHint}>
+            Gardez ce code, il sera demandé sur le boîtier à l’entrée.
+          </Text>
+        </View>
+
         {/* Lien pour télécharger la facture */}
         <Pressable onPress={generateInvoicePDF}>
           <Text style={styles.link}>Télécharger la facture</Text>
@@ -278,17 +340,21 @@ L’équipe Roomly
         {/* Bloc récapitulatif commande */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Récapitulatif de votre commande :</Text>
-          <Text>📍 {espaceNom}</Text>
-          <Text>📅 {resaDateFR}</Text>
-          <Text>🕒 {reservation.slots.join(", ")}</Text>
-          <Text>💶 Total : {totalTTC}€</Text>
+          <Text> {espaceNom}</Text>
+          <Text> {resaDateFR}</Text>
+          <Text> {reservation.slots.join(", ")}</Text>
+          <Text> Total : {totalTTC}€</Text>
+          <Text style={{ marginTop: 6 }}>
+            🔑 Code d’accès : <Text style={{ fontWeight: "700" }}>{codeAffiche}</Text>
+          </Text>
         </View>
 
         {/* Bloc détails d’accès */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Détails de livraison / accès :</Text>
-          <Text>📌 Adresse : {espaceAdresse}</Text>
-          <Text style={{ marginTop: 4 }}>🔑 Instructions :</Text>
+          <Text> Adresse : {espaceAdresse}</Text>
+          <Text style={{ marginTop: 4 }}> Code d’accès : {codeAffiche}</Text>
+          <Text style={{ marginTop: 4 }}> Instructions :</Text>
           <Text>{accessDetails}</Text>
         </View>
 
@@ -324,6 +390,18 @@ const styles = StyleSheet.create({
 
   title: { fontSize: 24, fontWeight: "700", marginTop: 10 },
   subtitle: { marginTop: 8, marginBottom: 10 },
+
+  codeBox: {
+    width: "90%",
+    backgroundColor: "#fff",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  codeLabel: { fontWeight: "600", marginBottom: 4 },
+  codeValue: { fontSize: 24, fontWeight: "800", letterSpacing: 4 },
+  codeHint: { fontSize: 12, color: "#555", marginTop: 4, textAlign: "center" },
 
   link: {
     color: "#3E7CB1",

@@ -1,3 +1,4 @@
+// app/entreprise/espace/editer_espace.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -60,6 +61,10 @@ export default function EditerEspace() {
 
   const [initialLocalisation, setInitialLocalisation] = useState("");
 
+  // Calendrier simple pour choisir la date des créneaux
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -88,7 +93,7 @@ export default function EditerEspace() {
     };
 
     fetchData();
-  }, []);
+  }, [id]);
 
   // ---------------- IMAGES ----------------
   const pickImage = async () => {
@@ -218,6 +223,26 @@ export default function EditerEspace() {
 
   const removeTimeSlot = (idSlot: string) => {
     setTimeSlots((prev) => prev.filter((s) => s.id !== idSlot));
+  };
+
+  // ------ calendrier pour remplir dateInput ------
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+  const first = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const changeMonth = (direction: number) => {
+    const newMonth = new Date(year, month + direction, 1);
+    setCurrentMonth(newMonth);
+  };
+
+  const handleSelectCalendarDay = (day: number) => {
+    const dayStr = String(day).padStart(2, "0");
+    const monthStr = String(month + 1).padStart(2, "0");
+    const yearStr = String(year);
+    const formatted = `${dayStr}/${monthStr}/${yearStr}`;
+    setDateInput(formatted);
+    setShowCalendar(false);
   };
 
   // ---------------- SAUVEGARDE ----------------
@@ -364,9 +389,24 @@ export default function EditerEspace() {
         />
 
         {/* DISPONIBILITÉS */}
-        <Text style={[styles.label, { marginTop: 10 }]}>
-          Disponibilités de l’espace
-        </Text>
+        <View
+          style={{
+            width: "90%",
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginTop: 10,
+            marginBottom: 4,
+          }}
+        >
+          <Text style={styles.label}>Disponibilités de l’espace</Text>
+          <Pressable onPress={() => setShowCalendar((v) => !v)}>
+            <Text style={styles.calendarLink}>
+              {showCalendar ? "Fermer le calendrier" : "Choisir via le calendrier"}
+            </Text>
+          </Pressable>
+        </View>
+
         <Text style={styles.helperText}>
           Format date : JJ/MM/AAAA (ex : 15/02/2025){"\n"}Heures : 09:00
         </Text>
@@ -380,6 +420,56 @@ export default function EditerEspace() {
             onChangeText={setDateInput}
           />
         </View>
+
+        {showCalendar && (
+          <View style={styles.calendarContainer}>
+            <View className="monthRow" style={styles.monthRow}>
+              <Pressable onPress={() => changeMonth(-1)}>
+                <Text style={styles.arrow}>«</Text>
+              </Pressable>
+
+              <Text style={styles.monthTitle}>
+                {currentMonth.toLocaleString("fr-FR", {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </Text>
+
+              <Pressable onPress={() => changeMonth(1)}>
+                <Text style={styles.arrow}>»</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.weekHeader}>
+              {["lu", "ma", "me", "je", "ve", "sa", "di"].map((d) => (
+                <Text key={d} style={styles.weekDay}>
+                  {d}
+                </Text>
+              ))}
+            </View>
+
+            <View style={styles.daysGrid}>
+              {Array.from({ length: first === 0 ? 6 : first - 1 }).map(
+                (_, i) => (
+                  <View key={i} style={styles.dayEmpty} />
+                )
+              )}
+
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1;
+                return (
+                  <Pressable
+                    key={day}
+                    style={styles.day}
+                    onPress={() => handleSelectCalendarDay(day)}
+                  >
+                    <Text style={styles.dayText}>{day}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={styles.slotInputsRow}>
           <TextInput
@@ -526,4 +616,50 @@ const styles = StyleSheet.create({
   },
   slotMainText: { fontSize: 14, fontWeight: "600", color: "#000" },
   slotSubText: { fontSize: 13, color: "#333" },
+
+  // calendrier
+  calendarLink: {
+    color: "#3E7CB1",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  calendarContainer: {
+    width: "90%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+  monthRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  arrow: { fontSize: 22, paddingHorizontal: 8 },
+  monthTitle: { fontSize: 16, fontWeight: "700" },
+  weekHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  weekDay: { width: 32, textAlign: "center", fontWeight: "600" },
+  daysGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 6,
+  },
+  dayEmpty: {
+    width: "14.28%",
+    aspectRatio: 1,
+  },
+  day: {
+    width: "14.28%",
+    aspectRatio: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 8,
+    marginVertical: 3,
+  },
+  dayText: { fontSize: 14 },
 });

@@ -62,6 +62,7 @@ export default function AdminHome() {
               Statistiques globales
             </Text>
           </Pressable>
+
           <Pressable
             style={styles.actionBtnSecondary}
             onPress={() => router.push("./utilisateurs")}
@@ -71,7 +72,27 @@ export default function AdminHome() {
               Voir et rechercher tous les comptes Roomly.
             </Text>
           </Pressable>
-          
+
+          <Pressable
+            style={styles.actionBtnSecondary}
+            onPress={() => router.push("./coupon")}
+          >
+            <Text style={styles.actionTitle}>Codes promos</Text>
+            <Text style={styles.actionSubtitle}>
+              Créer et gérer les codes promotionnels.
+            </Text>
+          </Pressable>
+
+          {/* 🔹 Nouveau bouton : tickets de support */}
+          <Pressable
+            style={styles.actionBtnSecondary}
+            onPress={() => router.push("./messages_contact")}
+          >
+            <Text style={styles.actionTitle}>Tickets support</Text>
+            <Text style={styles.actionSubtitle}>
+              Voir et traiter les tickets des utilisateurs et entreprises.
+            </Text>
+          </Pressable>
         </View>
 
         {/* BOUTON RETOUR UTILISATEUR */}

@@ -1,15 +1,26 @@
 // app/entreprise/home_entreprise.tsx
 import BottomNavBarEntreprise from "@/components/BottomNavBarEntreprise";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
@@ -21,6 +32,13 @@ export default function HomeEntreprise() {
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [kpis, setKpis] = useState({ today: 0, monthly: 0, occupancy: 0 });
   const [loading, setLoading] = useState(true);
+
+  // Contact support (entreprise -> admin)
+  const [contactEmail, setContactEmail] = useState(
+    auth.currentUser?.email ?? ""
+  );
+  const [contactMessage, setContactMessage] = useState("");
+  const [sendingContact, setSendingContact] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -38,7 +56,10 @@ export default function HomeEntreprise() {
         }
 
         const rSnap = await getDocs(collection(db, "reservations"));
-        const rawReservations = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const rawReservations = rSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
         const all: any[] = [];
 
         for (const r of rawReservations as any) {
@@ -49,7 +70,8 @@ export default function HomeEntreprise() {
             const userSnap = await getDoc(doc(db, "users", r.userId));
             if (userSnap.exists()) {
               const data = userSnap.data();
-              userName = (data as any).name || (data as any).email || "Utilisateur";
+              userName =
+                (data as any).name || (data as any).email || "Utilisateur";
             }
           }
 
@@ -97,6 +119,42 @@ export default function HomeEntreprise() {
     load();
   }, []);
 
+  const handleSendContact = async () => {
+  if (!contactEmail.trim() || !contactMessage.trim()) {
+    Alert.alert("Oups", "Merci de remplir l’e-mail et le message.");
+    return;
+  }
+
+  try {
+    setSendingContact(true);
+
+    // 🔹 ticket de support ENTREPRISE
+    await addDoc(collection(db, "supportTickets"), {
+      userId: auth.currentUser?.uid || null,
+      email: contactEmail.trim(),
+      message: contactMessage.trim(),
+      fromType: "entreprise",
+      status: "ouvert",
+      createdAt: serverTimestamp(),
+      lastUpdatedAt: serverTimestamp(),
+    });
+
+    setContactMessage("");
+    Alert.alert(
+      "Ticket créé",
+      "Votre ticket support a été créé. Vous pouvez suivre son état dans 'Mes tickets'."
+    );
+
+    // 🔹 redirection vers la page de suivi entreprise
+    router.push("/entreprise/mes_tickets");
+  } catch (e) {
+    console.log("Erreur contact entreprise :", e);
+    Alert.alert("Erreur", "Impossible de créer le ticket pour le moment.");
+  } finally {
+    setSendingContact(false);
+  }
+};
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -113,7 +171,9 @@ export default function HomeEntreprise() {
         <View style={styles.kpiRow}>
           <View style={styles.kpiCard}>
             <Text style={styles.kpiValue}>{kpis.today}</Text>
-            <Text style={styles.kpiLabel}>Réservations aujourd&apos;hui</Text>
+            <Text style={styles.kpiLabel}>
+              Réservations aujourd&apos;hui
+            </Text>
           </View>
 
           <View style={styles.kpiCard}>
@@ -127,50 +187,7 @@ export default function HomeEntreprise() {
           </View>
         </View>
 
-        {/* ------------------ NOUVELLES RÉSERVATIONS ------------------ */}
-        <Text style={styles.sectionTitle}>Nouvelles réservations</Text>
-
-        {loading ? (
-          <ActivityIndicator size="large" color="#3E7CB1" />
-        ) : reservations.length === 0 ? (
-          <Text style={styles.emptyText}>Aucune réservation.</Text>
-        ) : (
-          reservations.slice(0, 3).map((r) => (
-            <View key={r.id} style={styles.resaCard}>
-              <Text style={styles.resaTitle}>📍 {r.date}</Text>
-
-              <Text style={{ fontWeight: "600" }}>
-                Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
-              </Text>
-
-              <Text>Bureau : {r.espaceId}</Text>
-              <Text>Créneaux : {r.slots.join(", ")}</Text>
-              <Text>Total : {r.total} €</Text>
-            </View>
-          ))
-        )}
-
-        {/* ------------------ RÉSERVATIONS À VENIR ------------------ */}
-        <Text style={styles.sectionTitle}>Prochaines réservations</Text>
-
-        {upcoming.length === 0 ? (
-          <Text style={styles.emptyText}>Aucune réservation à venir.</Text>
-        ) : (
-          upcoming.map((r) => (
-            <View key={r.id} style={styles.resaCard}>
-              <Text style={styles.resaTitle}>{r.date}</Text>
-
-              <Text style={{ fontWeight: "600" }}>
-                Réservé par : <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
-              </Text>
-
-              <Text>Créneaux : {r.slots.join(", ")}</Text>
-              <Text>Total : {r.total} €</Text>
-            </View>
-          ))
-        )}
-
-        {/* ------------------ BOUTONS ACTION ------------------ */}
+        {/* ------------------ BOUTONS ACTION (remontés) ------------------ */}
         <View style={styles.buttonsContainer}>
           <Pressable
             style={styles.mainButton}
@@ -192,6 +209,112 @@ export default function HomeEntreprise() {
           >
             <Text style={styles.mainButtonText}>Toutes les réservations</Text>
           </Pressable>
+        </View>
+
+        {/* ------------------ NOUVELLES RÉSERVATIONS ------------------ */}
+        <Text style={styles.sectionTitle}>Nouvelles réservations</Text>
+
+        {loading ? (
+          <ActivityIndicator size="large" color="#3E7CB1" />
+        ) : reservations.length === 0 ? (
+          <Text style={styles.emptyText}>Aucune réservation.</Text>
+        ) : (
+          reservations.slice(0, 3).map((r) => (
+            <View key={r.id} style={styles.resaCard}>
+              <Text style={styles.resaTitle}>📍 {r.date}</Text>
+
+              <Text style={{ fontWeight: "600" }}>
+                Réservé par :{" "}
+                <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
+              </Text>
+
+              <Text>Bureau : {r.espaceId}</Text>
+              <Text>Créneaux : {r.slots.join(", ")}</Text>
+              <Text>Total : {r.total} €</Text>
+            </View>
+          ))
+        )}
+
+        {/* ------------------ RÉSERVATIONS À VENIR ------------------ */}
+        <Text style={styles.sectionTitle}>Prochaines réservations</Text>
+
+        {upcoming.length === 0 ? (
+          <Text style={styles.emptyText}>Aucune réservation à venir.</Text>
+        ) : (
+          upcoming.map((r) => (
+            <View key={r.id} style={styles.resaCard}>
+              <Text style={styles.resaTitle}>{r.date}</Text>
+
+              <Text style={{ fontWeight: "600" }}>
+                Réservé par :{" "}
+                <Text style={{ color: "#3E7CB1" }}>{r.userName}</Text>
+              </Text>
+
+              <Text>Créneaux : {r.slots.join(", ")}</Text>
+              <Text>Total : {r.total} €</Text>
+            </View>
+          ))
+        )}
+
+        {/* ------------------ SUPPORT & AIDE (contact + FAQ + tickets) ------------------ */}
+        <Text style={styles.sectionTitle}>Support & aide</Text>
+
+        <View style={styles.supportCard}>
+          <Text style={styles.supportTitle}>Contacter Roomly</Text>
+          <Text style={styles.supportText}>
+            Une question sur vos espaces, vos réservations ou la facturation ?
+            Envoyez-nous un message, l’équipe Roomly vous répondra par e-mail.
+          </Text>
+
+          <TextInput
+            style={styles.contactInput}
+            placeholder="Votre adresse e-mail"
+            placeholderTextColor="#777"
+            value={contactEmail}
+            onChangeText={setContactEmail}
+            keyboardType="email-address"
+          />
+
+          <TextInput
+            style={styles.contactMessageInput}
+            placeholder="Votre message..."
+            placeholderTextColor="#777"
+            value={contactMessage}
+            onChangeText={setContactMessage}
+            multiline
+          />
+
+          <Pressable
+  style={[
+    styles.contactButton,
+    sendingContact && { opacity: 0.6 },
+  ]}
+  onPress={handleSendContact}
+  disabled={sendingContact}
+>
+  {sendingContact ? (
+    <ActivityIndicator color="#fff" />
+  ) : (
+    <Text style={styles.contactButtonText}>Créer un ticket support</Text>
+  )}
+</Pressable>
+
+
+          <View style={styles.supportLinksRow}>
+            <Pressable
+              style={styles.faqLinkButton}
+              onPress={() => router.push("/entreprise/faq_entreprise")}
+            >
+              <Text style={styles.faqLinkText}>FAQ entreprise</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.faqLinkButton}
+              onPress={() => router.push("/entreprise/mes_tickets")}
+            >
+              <Text style={styles.faqLinkText}>Mes tickets</Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
 
@@ -226,7 +349,7 @@ const styles = StyleSheet.create({
   kpiRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: 10,
   },
   kpiCard: {
     width: "30%",
@@ -264,9 +387,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  /* Buttons – même style que mainButton dans home_utilisateur */
+  /* Boutons actions */
   buttonsContainer: {
-    marginTop: 20,
+    marginTop: 10,
+    marginBottom: 10,
     width: "100%",
     alignItems: "center",
   },
@@ -276,11 +400,73 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   mainButtonText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
+  },
+
+  /* Support & contact */
+  supportCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 5,
+  },
+  supportTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  supportText: {
+    fontSize: 13,
+    color: "#555",
+    marginBottom: 10,
+  },
+  contactInput: {
+    backgroundColor: "#D9D9D9",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  contactMessageInput: {
+    backgroundColor: "#D9D9D9",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: "top",
+    marginBottom: 10,
+  },
+  contactButton: {
+    backgroundColor: "#1E6091",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  contactButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  supportLinksRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  faqLinkButton: {
+    paddingVertical: 4,
+  },
+  faqLinkText: {
+    color: "#1E6091",
+    fontWeight: "600",
+    fontSize: 14,
+    textDecorationLine: "underline",
   },
 });

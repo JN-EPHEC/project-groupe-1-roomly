@@ -1,6 +1,7 @@
 // app/user/home_utilisateur.tsx
 import { router } from "expo-router";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -8,11 +9,13 @@ import {
   limit,
   orderBy,
   query,
+  serverTimestamp,
   where,
 } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -29,12 +32,17 @@ type Espace = {
   id: string;
   nom?: string;
   prix?: string | number;
+  capacite?: string | number;
   localisation?: string;
   images?: string[];
   createdAt?: any;
   latitude?: number;
   longitude?: number;
-  status?: string; // ex: "en attente de validation"
+  status?: string;
+
+  // 🔹 champs de boost
+  boostType?: string | null;
+  boostUntil?: any | null;
 };
 
 type Region = {
@@ -44,16 +52,35 @@ type Region = {
   longitudeDelta: number;
 };
 
+const isBoostActive = (e: Espace): boolean => {
+  if (!e.boostUntil) return false;
+  const d = (e.boostUntil as any).toDate
+    ? (e.boostUntil as any).toDate()
+    : new Date(e.boostUntil as any);
+  return d.getTime() > Date.now();
+};
+
 export default function HomeUtilisateur() {
   const [nextReservation, setNextReservation] = useState<any>(null);
 
   const [espaces, setEspaces] = useState<Espace[]>([]);
   const [filteredEspaces, setFilteredEspaces] = useState<Espace[]>([]);
 
-  const [activeFilter, setActiveFilter] = useState("Tous");
+  const [activeFilter, setActiveFilter] = useState<
+    "Tous" | "Nouveaux lieux" | "Populaires"
+  >("Tous");
   const [search, setSearch] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [minCapacity, setMinCapacity] = useState("");
 
   const [loading, setLoading] = useState(true);
+
+  // 🔹 formulaire de contact / ticket support
+  const [contactEmail, setContactEmail] = useState(
+    auth.currentUser?.email || ""
+  );
+  const [contactMessage, setContactMessage] = useState("");
+  const [sendingContact, setSendingContact] = useState(false);
 
   /* ------------------ LOAD DATA ------------------ */
   useEffect(() => {
@@ -61,7 +88,7 @@ export default function HomeUtilisateur() {
       try {
         const userId = auth.currentUser?.uid;
 
-        /* ---- 1) Prochaine réservation ---- */
+        // 1) Prochaine réservation
         if (userId) {
           const qResa = query(
             collection(db, "reservations"),
@@ -87,15 +114,14 @@ export default function HomeUtilisateur() {
           }
         }
 
-        /* ---- 2) Espaces disponibles ---- */
+        // 2) Espaces disponibles
         const eSnap = await getDocs(collection(db, "espaces"));
         const rawList = eSnap.docs.map((d) => ({
           id: d.id,
           ...(d.data() as any),
         }));
 
-        // 🔒 On cache les espaces encore en attente de validation
-        const list = rawList.filter(
+        const list: Espace[] = rawList.filter(
           (e: any) => e.status !== "en attente de validation"
         );
 
@@ -111,11 +137,53 @@ export default function HomeUtilisateur() {
     loadData();
   }, []);
 
-  /* ------------------ APPLY FILTERS ------------------ */
-  const applyFilters = async (newFilter: string, newSearch: string) => {
-    let result = [...espaces];
+/* ------------------ CONTACT / TICKET SUPPORT ------------------ */
+const handleSendContact = async () => {
+  if (!contactEmail.trim() || !contactMessage.trim()) {
+    Alert.alert("Oups", "Merci de remplir l’e-mail et le message.");
+    return;
+  }
 
-    /* ---------- 1) POPULAIRES (top 2) ---------- */
+  try {
+    setSendingContact(true);
+
+    // ✅ ticket de support UTILISATEUR
+    await addDoc(collection(db, "supportTickets"), {
+      userId: auth.currentUser?.uid || null,
+      email: contactEmail.trim(),
+      message: contactMessage.trim(),
+      fromType: "utilisateur",
+      status: "ouvert",
+      createdAt: serverTimestamp(),
+      lastUpdatedAt: serverTimestamp(),
+    });
+
+    setContactMessage("");
+    Alert.alert(
+      "Ticket créé",
+      "Votre ticket support a été créé. Vous pouvez suivre son état dans 'Mes tickets'."
+    );
+
+    // ✅ redirection vers la page de suivi utilisateur
+    router.push("/user/mes_tickets");
+  } catch (e) {
+    console.log("Erreur contact utilisateur :", e);
+    Alert.alert("Erreur", "Impossible de créer le ticket pour le moment.");
+  } finally {
+    setSendingContact(false);
+  }
+};
+
+  /* ------------------ APPLY FILTERS ------------------ */
+  const applyFilters = async (
+    newFilter: "Tous" | "Nouveaux lieux" | "Populaires",
+    newSearch: string,
+    newMaxPrice: string,
+    newMinCapacity: string
+  ) => {
+    let result: Espace[] = [...espaces];
+
+    // 1) Populaires (top 2)
     if (newFilter === "Populaires") {
       const rSnap = await getDocs(collection(db, "reservations"));
       const reservations = rSnap.docs.map((d) => d.data() as any);
@@ -137,7 +205,7 @@ export default function HomeUtilisateur() {
         .slice(0, 2);
     }
 
-    /* ---------- 2) NOUVEAUX LIEUX (moins de 72h) ---------- */
+    // 2) Nouveaux lieux (moins de 72h)
     if (newFilter === "Nouveaux lieux") {
       result = result.filter((e: any) => {
         if (!e.createdAt) return false;
@@ -148,7 +216,7 @@ export default function HomeUtilisateur() {
       });
     }
 
-    /* ---------- 3) RECHERCHE ---------- */
+    // 3) Recherche texte
     if (newSearch.trim().length > 0) {
       const s = newSearch.toLowerCase();
       result = result.filter((e) =>
@@ -158,35 +226,84 @@ export default function HomeUtilisateur() {
       );
     }
 
+    // 4) Filtre prix max
+    const maxP = Number(newMaxPrice.replace(",", "."));
+    if (!isNaN(maxP) && maxP > 0) {
+      result = result.filter((e) => {
+        const p = Number(e.prix);
+        return !isNaN(p) && p <= maxP;
+      });
+    }
+
+    // 5) Filtre capacité min
+    const minC = parseInt(newMinCapacity, 10);
+    if (!isNaN(minC) && minC > 0) {
+      result = result.filter((e) => {
+        const c = Number(e.capacite);
+        return !isNaN(c) && c >= minC;
+      });
+    }
+
+    // 6) Tri : annonces boostées en premier
+    const now = Date.now();
+    result.sort((a, b) => {
+      const aBoost =
+        a.boostUntil &&
+        ((a.boostUntil as any).toDate
+          ? (a.boostUntil as any).toDate().getTime()
+          : new Date(a.boostUntil as any).getTime()) > now;
+      const bBoost =
+        b.boostUntil &&
+        ((b.boostUntil as any).toDate
+          ? (b.boostUntil as any).toDate().getTime()
+          : new Date(b.boostUntil as any).getTime()) > now;
+
+      if (aBoost && !bBoost) return -1;
+      if (!aBoost && bBoost) return 1;
+      return 0;
+    });
+
     setFilteredEspaces(result);
   };
 
-  const changeFilter = async (f: string) => {
+  const changeFilter = async (f: "Tous" | "Nouveaux lieux" | "Populaires") => {
     setActiveFilter(f);
-    await applyFilters(f, search);
+    await applyFilters(f, search, maxPrice, minCapacity);
   };
 
   const handleSearch = (txt: string) => {
     setSearch(txt);
-    applyFilters(activeFilter, txt);
+    applyFilters(activeFilter, txt, maxPrice, minCapacity);
+  };
+
+  const handleMaxPriceChange = (txt: string) => {
+    setMaxPrice(txt);
+    applyFilters(activeFilter, search, txt, minCapacity);
+  };
+
+  const handleMinCapacityChange = (txt: string) => {
+    setMinCapacity(txt);
+    applyFilters(activeFilter, search, maxPrice, txt);
   };
 
   /* ------------------ MAP POINTS ------------------ */
-  const mapPoints = useMemo(() => {
-    return filteredEspaces
-      .filter(
-        (e) =>
-          typeof e.latitude === "number" && typeof e.longitude === "number"
-      )
-      .map((e) => ({
-        id: e.id,
-        lat: e.latitude as number,
-        lng: e.longitude as number,
-        nom: e.nom || "Espace",
-        prix: e.prix,
-        localisation: e.localisation || "",
-      }));
-  }, [filteredEspaces]);
+  const mapPoints = useMemo(
+    () =>
+      filteredEspaces
+        .filter(
+          (e) =>
+            typeof e.latitude === "number" && typeof e.longitude === "number"
+        )
+        .map((e) => ({
+          id: e.id,
+          lat: e.latitude as number,
+          lng: e.longitude as number,
+          nom: e.nom || "Espace",
+          prix: e.prix,
+          localisation: e.localisation || "",
+        })),
+    [filteredEspaces]
+  );
 
   const initialRegion: Region = useMemo(() => {
     if (mapPoints.length > 0) {
@@ -286,9 +403,69 @@ export default function HomeUtilisateur() {
           <Text style={styles.mainButtonText}>Voir mes réservations</Text>
         </Pressable>
 
+        {/* BOUTONS FAQ + MES TICKETS */}
+        <View style={styles.secondaryButtonsRow}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => router.push("/user/faq")}
+          >
+            <Text style={styles.secondaryButtonText}>FAQ</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.secondaryButton, { marginLeft: 8 }]}
+            onPress={() => router.push("/user/mes_tickets")}
+          >
+            <Text style={styles.secondaryButtonText}>Mes tickets</Text>
+          </Pressable>
+        </View>
+
+        {/* FORMULAIRE CONTACT / TICKET */}
+        <View style={styles.contactCard}>
+          <Text style={styles.contactTitle}>Une question ?</Text>
+          <Text style={styles.contactSubtitle}>
+            Écris-nous, l’équipe Roomly te répondra.
+          </Text>
+
+          <TextInput
+            style={styles.contactInput}
+            placeholder="Ton adresse e-mail"
+            placeholderTextColor="#777"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={contactEmail}
+            onChangeText={setContactEmail}
+          />
+
+          <TextInput
+            style={[styles.contactInput, styles.contactTextarea]}
+            placeholder="Ton message"
+            placeholderTextColor="#777"
+            multiline
+            numberOfLines={4}
+            value={contactMessage}
+            onChangeText={setContactMessage}
+          />
+
+          <Pressable
+  style={[
+    styles.contactButton,
+    sendingContact && { opacity: 0.7 },
+  ]}
+  onPress={handleSendContact}
+  disabled={sendingContact}
+>
+  <Text style={styles.contactButtonText}>
+    {sendingContact ? "Création..." : "Créer un ticket support"}
+  </Text>
+</Pressable>
+
+        </View>
+
         {/* BUREAUX */}
         <Text style={styles.sectionTitleLeft}>Bureaux disponibles</Text>
 
+        {/* Recherche texte */}
         <TextInput
           placeholder="Rechercher une localisation..."
           placeholderTextColor="#777"
@@ -297,9 +474,29 @@ export default function HomeUtilisateur() {
           onChangeText={handleSearch}
         />
 
+        {/* Filtres avancés : prix & capacité */}
+        <View style={styles.advancedFilterRow}>
+          <TextInput
+            placeholder="Prix max €/h"
+            placeholderTextColor="#777"
+            style={styles.advancedInput}
+            keyboardType="numeric"
+            value={maxPrice}
+            onChangeText={handleMaxPriceChange}
+          />
+          <TextInput
+            placeholder="Capacité min"
+            placeholderTextColor="#777"
+            style={styles.advancedInput}
+            keyboardType="numeric"
+            value={minCapacity}
+            onChangeText={handleMinCapacityChange}
+          />
+        </View>
+
         {/* FILTRES */}
         <View style={styles.filterRow}>
-          {["Tous", "Nouveaux lieux", "Populaires"].map((f) => (
+          {(["Tous", "Nouveaux lieux", "Populaires"] as const).map((f) => (
             <Pressable
               key={f}
               style={[styles.filter, activeFilter === f && styles.filterActive]}
@@ -324,33 +521,42 @@ export default function HomeUtilisateur() {
           contentContainerStyle={styles.horizontalScroll}
           style={{ width: "100%" }}
         >
-          {filteredEspaces.map((e) => (
-            <Pressable
-              key={e.id}
-              style={styles.espaceCardHorizontal}
-              onPress={() => router.push(`/user/details_espace/${e.id}`)}
-            >
-              {e.images?.[0] ? (
-                <Image
-                  source={{ uri: e.images[0] }}
-                  style={styles.espaceImageHorizontal}
-                />
-              ) : (
-                <Image
-                  source={require("../../assets/images/roomly-logo.png")}
-                  style={styles.espaceImageHorizontal}
-                />
-              )}
+          {filteredEspaces.map((e) => {
+            const boosted = isBoostActive(e);
+            return (
+              <Pressable
+                key={e.id}
+                style={styles.espaceCardHorizontal}
+                onPress={() => router.push(`/user/details_espace/${e.id}`)}
+              >
+                {e.images?.[0] ? (
+                  <Image
+                    source={{ uri: e.images[0] }}
+                    style={styles.espaceImageHorizontal}
+                  />
+                ) : (
+                  <Image
+                    source={require("../../assets/images/roomly-logo.png")}
+                    style={styles.espaceImageHorizontal}
+                  />
+                )}
 
-              <Text style={styles.espaceCardTitle} numberOfLines={1}>
-                {e.nom || "Espace"}
-              </Text>
-              <Text style={styles.priceSmall}>{e.prix} €/h</Text>
-              <Text style={styles.locationSmall} numberOfLines={1}>
-                {e.localisation || ""}
-              </Text>
-            </Pressable>
-          ))}
+                {boosted && (
+                  <View style={styles.boostBadge}>
+                    <Text style={styles.boostBadgeText}>Top listing</Text>
+                  </View>
+                )}
+
+                <Text style={styles.espaceCardTitle} numberOfLines={1}>
+                  {e.nom || "Espace"}
+                </Text>
+                <Text style={styles.priceSmall}>{e.prix} €/h</Text>
+                <Text style={styles.locationSmall} numberOfLines={1}>
+                  {e.localisation || ""}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
 
         {/* MAP */}
@@ -441,9 +647,73 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 10,
   },
   mainButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+
+  /* FAQ / Contact / Tickets */
+  secondaryButtonsRow: {
+    width: "85%",
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    marginBottom: 10,
+  },
+  secondaryButton: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#3E7CB1",
+  },
+  secondaryButtonText: {
+    color: "#3E7CB1",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+
+  contactCard: {
+    width: "90%",
+    backgroundColor: "#fff",
+    borderRadius: 15,
+    padding: 14,
+    marginBottom: 20,
+  },
+  contactTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  contactSubtitle: {
+    fontSize: 13,
+    color: "#555",
+    marginBottom: 8,
+  },
+  contactInput: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  contactTextarea: {
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+  contactButton: {
+    marginTop: 4,
+    backgroundColor: "#3E7CB1",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  contactButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
 
   searchInput: {
     width: "90%",
@@ -454,7 +724,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: "#ccc",
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+
+  advancedFilterRow: {
+    width: "90%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  advancedInput: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    marginHorizontal: 3,
   },
 
   filterRow: {
@@ -485,6 +773,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 12,
     marginRight: 12,
+    position: "relative",
   },
 
   espaceImageHorizontal: {
@@ -492,6 +781,21 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 10,
     marginBottom: 8,
+  },
+
+  boostBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "#8e44ad",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  boostBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
 
   espaceCardTitle: { fontWeight: "700", marginBottom: 3 },

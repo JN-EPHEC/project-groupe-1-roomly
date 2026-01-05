@@ -8,6 +8,7 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 admin.initializeApp();
 
 // Secret défini côté Firebase (PAS dans le code)
+// firebase functions:secrets:set SENDGRID_API_KEY --project roomly-ba
 const SENDGRID_KEY = defineSecret("SENDGRID_API_KEY");
 
 // Adresse d’expéditeur
@@ -22,7 +23,6 @@ export const sendReservationConfirmationEmail = onDocumentCreated(
     region: "us-central1",
     secrets: [SENDGRID_KEY],
   },
-  // ⚠️ 2e argument uniquement = le handler
   async (event: any) => {
     const snap = event.data;
     if (!snap) {

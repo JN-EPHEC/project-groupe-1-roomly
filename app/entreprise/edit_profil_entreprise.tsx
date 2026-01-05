@@ -10,6 +10,7 @@ import {
     Alert,
     Image,
     Pressable,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -180,131 +181,139 @@ export default function EditProfilEntreprise() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={26} color="#000" />
-        </Pressable>
-        <Text style={styles.title}>Modifier le profil entreprise</Text>
-        <View style={{ width: 32 }} />
-      </View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* HEADER */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
+          </Pressable>
+          <Text style={styles.title}>Modifier le profil entreprise</Text>
+          <View style={{ width: 32 }} />
+        </View>
 
-      {/* LOGO */}
-      <View style={styles.avatarSection}>
-        <Pressable onPress={pickImage} style={styles.avatarWrapper}>
-          {logoUrl ? (
-            <Image source={{ uri: logoUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarInitials}>{initials}</Text>
+        {/* LOGO */}
+        <View style={styles.avatarSection}>
+          <Pressable onPress={pickImage} style={styles.avatarWrapper}>
+            {logoUrl ? (
+              <Image source={{ uri: logoUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Text style={styles.avatarInitials}>{initials}</Text>
+              </View>
+            )}
+            <View style={styles.avatarEditBadge}>
+              <Ionicons name="camera" size={16} color="#fff" />
             </View>
-          )}
-          <View style={styles.avatarEditBadge}>
-            <Ionicons name="camera" size={16} color="#fff" />
-          </View>
-        </Pressable>
-        <Text style={styles.avatarHint}>Changer le logo de l’entreprise</Text>
-      </View>
+          </Pressable>
+          <Text style={styles.avatarHint}>Changer le logo de l’entreprise</Text>
+        </View>
 
-      {/* FORMULAIRE */}
-      <View style={styles.form}>
-        <Text style={styles.label}>Nom de l’entreprise</Text>
-        <TextInput
-          style={styles.input}
-          value={companyName}
-          onChangeText={setCompanyName}
-          placeholder="Nom légal / commercial"
-        />
+        {/* FORMULAIRE */}
+        <View style={styles.form}>
+          <Text style={styles.label}>Nom de l’entreprise</Text>
+          <TextInput
+            style={styles.input}
+            value={companyName}
+            onChangeText={setCompanyName}
+            placeholder="Nom légal / commercial"
+          />
 
-        <Text style={styles.label}>Personne de contact</Text>
-        <TextInput
-          style={styles.input}
-          value={contactName}
-          onChangeText={setContactName}
-          placeholder="Nom et prénom"
-        />
+          <Text style={styles.label}>Personne de contact</Text>
+          <TextInput
+            style={styles.input}
+            value={contactName}
+            onChangeText={setContactName}
+            placeholder="Nom et prénom"
+          />
 
-        <Text style={styles.label}>Téléphone</Text>
-        <TextInput
-          style={styles.input}
-          value={phone}
-          onChangeText={setPhone}
-          placeholder="Numéro de téléphone"
-          keyboardType="phone-pad"
-        />
+          <Text style={styles.label}>Téléphone</Text>
+          <TextInput
+            style={styles.input}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Numéro de téléphone"
+            keyboardType="phone-pad"
+          />
 
-        <Text style={styles.label}>Secteur d’activité</Text>
-        <TextInput
-          style={styles.input}
-          value={sector}
-          onChangeText={setSector}
-          placeholder="Coworking, consulting…"
-        />
+          <Text style={styles.label}>Secteur d’activité</Text>
+          <TextInput
+            style={styles.input}
+            value={sector}
+            onChangeText={setSector}
+            placeholder="Coworking, consulting…"
+          />
 
-        <Text style={styles.label}>Site web</Text>
-        <TextInput
-          style={styles.input}
-          value={website}
-          onChangeText={setWebsite}
-          placeholder="https://..."
-          autoCapitalize="none"
-        />
+          <Text style={styles.label}>Site web</Text>
+          <TextInput
+            style={styles.input}
+            value={website}
+            onChangeText={setWebsite}
+            placeholder="https://..."
+            autoCapitalize="none"
+          />
 
-        <Text style={styles.label}>Rue et numéro</Text>
-        <TextInput
-          style={styles.input}
-          value={addressStreet}
-          onChangeText={setAddressStreet}
-          placeholder="Rue, n°"
-        />
+          <Text style={styles.label}>Rue et numéro</Text>
+          <TextInput
+            style={styles.input}
+            value={addressStreet}
+            onChangeText={setAddressStreet}
+            placeholder="Rue, n°"
+          />
 
-        <Text style={styles.label}>Code postal</Text>
-        <TextInput
-          style={styles.input}
-          value={postalCode}
-          onChangeText={setPostalCode}
-          placeholder="Code postal"
-        />
+          <Text style={styles.label}>Code postal</Text>
+          <TextInput
+            style={styles.input}
+            value={postalCode}
+            onChangeText={setPostalCode}
+            placeholder="Code postal"
+          />
 
-        <Text style={styles.label}>Ville</Text>
-        <TextInput
-          style={styles.input}
-          value={city}
-          onChangeText={setCity}
-          placeholder="Ville"
-        />
+          <Text style={styles.label}>Ville</Text>
+          <TextInput
+            style={styles.input}
+            value={city}
+            onChangeText={setCity}
+            placeholder="Ville"
+          />
 
-        <Text style={styles.label}>Pays</Text>
-        <TextInput
-          style={styles.input}
-          value={country}
-          onChangeText={setCountry}
-          placeholder="Pays"
-        />
+          <Text style={styles.label}>Pays</Text>
+          <TextInput
+            style={styles.input}
+            value={country}
+            onChangeText={setCountry}
+            placeholder="Pays"
+          />
 
-        <Text style={styles.label}>Numéro de TVA</Text>
-        <TextInput
-          style={styles.input}
-          value={vatNumber}
-          onChangeText={setVatNumber}
-          placeholder="BE0..."
-        />
+          <Text style={styles.label}>Numéro de TVA</Text>
+          <TextInput
+            style={styles.input}
+            value={vatNumber}
+            onChangeText={setVatNumber}
+            placeholder="BE0..."
+          />
 
-        <Text style={styles.label}>Description de l’entreprise</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Courte présentation"
-          multiline
-        />
+          <Text style={styles.label}>Description de l’entreprise</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Courte présentation"
+            multiline
+          />
 
-        <Pressable style={styles.saveButton} onPress={save} disabled={saving}>
-          <Text style={styles.saveText}>
-            {saving ? "Enregistrement..." : "Enregistrer"}
-          </Text>
-        </Pressable>
-      </View>
+          <Pressable style={styles.saveButton} onPress={save} disabled={saving}>
+            <Text style={styles.saveText}>
+              {saving ? "Enregistrement..." : "Enregistrer"}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* marge bas pour éviter que le bouton colle au bord / clavier */}
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 }
@@ -312,6 +321,10 @@ export default function EditProfilEntreprise() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF3F8" },
   loading: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  scrollContent: {
+    paddingBottom: 40,
+  },
 
   header: {
     flexDirection: "row",
