@@ -2,11 +2,13 @@
 import BottomNavBarEntreprise from "@/components/BottomNavBarEntreprise";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
   getDocs,
   query,
+  serverTimestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -36,6 +38,13 @@ export default function ReservationsEntreprise() {
   const [ratingValue, setRatingValue] = useState<number>(5);
   const [ratingComment, setRatingComment] = useState("");
   const [savingRating, setSavingRating] = useState(false);
+
+  // ---- état pour signalement / blocage ----
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportReservation, setReportReservation] = useState<any | null>(null);
+  const [reportReason, setReportReason] = useState("");
+  const [blockUser, setBlockUser] = useState(true);
+  const [savingReport, setSavingReport] = useState(false);
 
   useEffect(() => {
     const loadReservations = async () => {
@@ -177,6 +186,140 @@ export default function ReservationsEntreprise() {
     }
   };
 
+  // --------- annulation par l’entreprise (seulement si résa à venir) ---------
+  const handleCancelByEntreprise = (reservation: any) => {
+    const isPast = isPastReservation(reservation.date);
+    if (isPast) {
+      Alert.alert(
+        "Action impossible",
+        "Vous ne pouvez pas annuler une réservation déjà passée."
+      );
+      return;
+    }
+    if (reservation.status === "annulée") {
+      Alert.alert(
+        "Déjà annulée",
+        "Cette réservation a déjà été annulée."
+      );
+      return;
+    }
+
+    const total = Number(reservation.total) || 0;
+
+    Alert.alert(
+      "Annuler la réservation ?",
+      "Cette action annulera la réservation et enregistrera un remboursement intégral pour le client (MVP).",
+      [
+        { text: "Non", style: "cancel" },
+        {
+          text: "Oui, annuler",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const refundAmount = total;
+
+              await updateDoc(doc(db, "reservations", reservation.id), {
+                status: "annulée",
+                cancelledBy: "entreprise",
+                cancelledAt: new Date(),
+                paymentStatus: "refunded_full",
+                refundAmount,
+              });
+
+              // mise à jour locale
+              setReservations((prev) =>
+                prev.map((r) =>
+                  r.id === reservation.id
+                    ? {
+                        ...r,
+                        status: "annulée",
+                        cancelledBy: "entreprise",
+                        paymentStatus: "refunded_full",
+                        refundAmount,
+                      }
+                    : r
+                )
+              );
+            } catch (e) {
+              console.log("Erreur annulation par entreprise :", e);
+              Alert.alert(
+                "Erreur",
+                "Impossible d’annuler la réservation pour le moment."
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // --------- signalement / blocage utilisateur ---------
+  const openReportModal = (reservation: any) => {
+    setReportReservation(reservation);
+    setReportReason("");
+    setBlockUser(true);
+    setReportModalVisible(true);
+  };
+
+  const closeReportModal = () => {
+    if (savingReport) return;
+    setReportModalVisible(false);
+    setReportReservation(null);
+    setReportReason("");
+    setBlockUser(true);
+  };
+
+  const handleSubmitReport = async () => {
+    if (!reportReservation) return;
+    if (!reportReason.trim()) {
+      Alert.alert("Motif requis", "Merci d’indiquer un motif de signalement.");
+      return;
+    }
+
+    try {
+      setSavingReport(true);
+      const reporterId = auth.currentUser?.uid || null;
+      const reportedUserId = reportReservation.userId || null;
+
+      // 1) enregistrement du signalement
+      await addDoc(collection(db, "abuseReports"), {
+        reservationId: reportReservation.id,
+        reportedUserId,
+        reporterEntrepriseId: reporterId,
+        reason: reportReason.trim(),
+        createdAt: serverTimestamp(),
+        status: "nouveau",
+      });
+
+      // 2) blocage éventuel de l’utilisateur
+      if (blockUser && reportedUserId) {
+        const userRef = doc(db, "users", reportedUserId);
+        await updateDoc(userRef, {
+          isBlocked: true,
+          blockedAt: new Date(),
+          blockedBy: reporterId || "entreprise",
+        });
+      }
+
+      Alert.alert(
+        "Signalement envoyé",
+        blockUser
+          ? "L’utilisateur a été signalé et bloqué."
+          : "L’utilisateur a été signalé."
+      );
+      closeReportModal();
+    } catch (e) {
+      console.log("Erreur signalement utilisateur :", e);
+      Alert.alert(
+        "Erreur",
+        "Impossible d’enregistrer le signalement pour le moment."
+      );
+      setSavingReport(false);
+    } finally {
+      setSavingReport(false);
+    }
+  };
+
   // --------- synthèse paiements / commissions ---------
   const totals = reservations.reduce(
     (acc, r) => {
@@ -246,6 +389,21 @@ export default function ReservationsEntreprise() {
             const total = Number(r.total) || 0;
             const commission = total * COMMISSION_RATE;
             const net = total - commission;
+            const isCancelled = r.status === "annulée";
+
+            let etatLabel = "";
+            let etatColor = "green";
+
+            if (isCancelled) {
+              etatLabel = "Annulée (remboursement intégral)";
+              etatColor = "#c0392b";
+            } else if (isPast) {
+              etatLabel = "Passée";
+              etatColor = "grey";
+            } else {
+              etatLabel = "À venir";
+              etatColor = "green";
+            }
 
             return (
               <View key={r.id} style={styles.card}>
@@ -294,17 +452,29 @@ export default function ReservationsEntreprise() {
 
                 <View style={styles.row}>
                   <Text style={styles.label}>État :</Text>
-                  <Text
-                    style={[
-                      styles.value,
-                      {
-                        color: isPast ? "grey" : "green",
-                      },
-                    ]}
-                  >
-                    {isPast ? "Passée" : "À venir"}
+                  <Text style={[styles.value, { color: etatColor }]}>
+                    {etatLabel}
                   </Text>
                 </View>
+
+                {r.paymentStatus && (
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Statut paiement :</Text>
+                    <Text style={styles.value}>{r.paymentStatus}</Text>
+                  </View>
+                )}
+
+                {/* Bouton d'annulation (uniquement si non annulée ET à venir) */}
+                {!isCancelled && !isPast && (
+                  <Pressable
+                    style={styles.cancelBtn}
+                    onPress={() => handleCancelByEntreprise(r)}
+                  >
+                    <Text style={styles.cancelText}>
+                      Annuler la réservation (remb. intégral)
+                    </Text>
+                  </Pressable>
+                )}
 
                 {/* Bloc notation : uniquement si réservation passée */}
                 {isPast && (
@@ -348,6 +518,24 @@ export default function ReservationsEntreprise() {
                     )}
                   </View>
                 )}
+
+                {/* Bouton signaler / bloquer l'utilisateur */}
+                <View style={{ marginTop: 8 }}>
+                  <Pressable
+                    style={styles.reportBtn}
+                    onPress={() => openReportModal(r)}
+                  >
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={18}
+                      color="#c0392b"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={styles.reportBtnText}>
+                      Signaler / bloquer cet utilisateur
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             );
           })
@@ -423,6 +611,85 @@ export default function ReservationsEntreprise() {
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text style={styles.modalBtnPrimaryText}>Enregistrer</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE SIGNALEMENT / BLOCAGE */}
+      <Modal
+        visible={reportModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeReportModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Signaler un utilisateur</Text>
+            {reportReservation && (
+              <Text style={styles.modalSubtitle}>
+                Utilisateur : {reportReservation.userName}
+                {"\n"}
+                Réservation du{" "}
+                {new Date(reportReservation.date).toLocaleDateString("fr-FR")}
+              </Text>
+            )}
+
+            <Text style={styles.modalLabel}>Motif du signalement</Text>
+            <TextInput
+              style={styles.commentInput}
+              placeholder="Décrivez le comportement abusif..."
+              placeholderTextColor="#777"
+              value={reportReason}
+              onChangeText={setReportReason}
+              multiline
+            />
+
+            <Pressable
+              style={styles.reportCheckboxRow}
+              onPress={() => setBlockUser((b) => !b)}
+            >
+              <View
+                style={[
+                  styles.reportCheckboxBox,
+                  blockUser && styles.reportCheckboxBoxChecked,
+                ]}
+              >
+                {blockUser && (
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                )}
+              </View>
+              <Text style={styles.reportCheckboxText}>
+                Bloquer cet utilisateur sur Roomly
+              </Text>
+            </Pressable>
+
+            <View style={styles.modalButtonsRow}>
+              <Pressable
+                style={[
+                  styles.modalBtnSecondary,
+                  savingReport && { opacity: 0.6 },
+                ]}
+                onPress={closeReportModal}
+                disabled={savingReport}
+              >
+                <Text style={styles.modalBtnSecondaryText}>Annuler</Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.modalBtnPrimaryDanger,
+                  savingReport && { opacity: 0.7 },
+                ]}
+                onPress={handleSubmitReport}
+                disabled={savingReport}
+              >
+                {savingReport ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnPrimaryText}>Envoyer</Text>
                 )}
               </Pressable>
             </View>
@@ -555,6 +822,40 @@ const styles = StyleSheet.create({
     color: "#444",
   },
 
+  /* bouton annulation entreprise */
+  cancelBtn: {
+    marginTop: 8,
+    alignSelf: "stretch",
+    backgroundColor: "#e74c3c",
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  cancelText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  /* bouton signalement */
+  reportBtn: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#c0392b",
+    backgroundColor: "#FDEDEC",
+  },
+  reportBtnText: {
+    color: "#c0392b",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+
   /* modal */
   modalOverlay: {
     flex: 1,
@@ -621,9 +922,40 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#3E7CB1",
   },
+  modalBtnPrimaryDanger: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: "#c0392b",
+  },
   modalBtnPrimaryText: {
     fontSize: 14,
     color: "#fff",
     fontWeight: "600",
+  },
+
+  /* checkbox blocage */
+  reportCheckboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  reportCheckboxBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#c0392b",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 8,
+    backgroundColor: "#fff",
+  },
+  reportCheckboxBoxChecked: {
+    backgroundColor: "#c0392b",
+  },
+  reportCheckboxText: {
+    fontSize: 13,
+    color: "#333",
   },
 });

@@ -1,13 +1,12 @@
-// app/user/conditions_assurance.tsx
 import { useRouter } from "expo-router";
 import React from "react";
 import {
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import BottomNavBar from "../../components/BottomNavBar";
 
@@ -26,10 +25,57 @@ export default function ConditionsAssuranceScreen() {
 
         {/* Back */}
         <Pressable onPress={() => router.back()} style={styles.backRow}>
-          <Text style={styles.backText}>‹   Conditions d’assurance</Text>
+          <Text style={styles.backText}>‹   Mentions légales & assurance</Text>
         </Pressable>
 
         <View style={styles.separator} />
+
+        {/* ================= MENTIONS LÉGALES ================= */}
+
+        <Text style={styles.title}>Mentions légales</Text>
+
+        <Text style={styles.paragraph}>
+          Roomly est une plateforme de mise en relation permettant la
+          réservation et la location ponctuelle d’espaces de travail entre
+          entreprises et utilisateurs.
+        </Text>
+
+        <Text style={styles.paragraph}>
+          <Text style={styles.bold}>Dénomination légale :</Text> Roomly SRL
+        </Text>
+
+        <Text style={styles.paragraph}>
+          <Text style={styles.bold}>Siège social :</Text> Avenue Louise 123,
+          1050 Bruxelles — Belgique
+        </Text>
+
+        <Text style={styles.paragraph}>
+          <Text style={styles.bold}>Numéro d’entreprise / TVA :</Text>{" "}
+          BE0123.456.789
+        </Text>
+
+        <Text style={styles.paragraph}>
+          <Text style={styles.bold}>E-mail :</Text> contact@roomly.be
+        </Text>
+
+        <Text style={styles.paragraph}>
+          <Text style={styles.bold}>Téléphone :</Text> +32 2 123 45 67
+        </Text>
+
+        <Text style={styles.paragraph}>
+          Les entreprises publiant des annonces sur Roomly restent seules
+          responsables des informations qu’elles diffusent ainsi que de la
+          conformité, sécurité et accessibilité des espaces mis à disposition.
+        </Text>
+
+        <Text style={styles.paragraph}>
+          Roomly agit en qualité d’intermédiaire technique et n’est pas partie
+          au contrat de location conclu entre l’utilisateur et l’entreprise.
+        </Text>
+
+        <View style={styles.separator} />
+
+        {/* ================= CONDITIONS D’ASSURANCE ================= */}
 
         <Text style={styles.title}>Conditions d’assurance Roomly</Text>
 
@@ -52,7 +98,9 @@ export default function ConditionsAssuranceScreen() {
         <Text style={styles.paragraph}>
           L’assurance ne couvre notamment pas :
         </Text>
-        <Text style={styles.bullet}>• Les dommages intentionnels ou frauduleux.</Text>
+        <Text style={styles.bullet}>
+          • Les dommages intentionnels ou frauduleux.
+        </Text>
         <Text style={styles.bullet}>
           • Les dégradations résultant d’un usage manifestement inadapté des
           locaux (fête, activité non professionnelle, etc.).
@@ -82,9 +130,7 @@ export default function ConditionsAssuranceScreen() {
         </Text>
 
         <Text style={styles.subtitle}>4. Déclaration d’incident</Text>
-        <Text style={styles.paragraph}>
-          En cas de dommage :
-        </Text>
+        <Text style={styles.paragraph}>En cas de dommage :</Text>
         <Text style={styles.bullet}>
           • L’utilisateur informe l’entreprise sur place ou via les canaux de
           contact fournis.
@@ -93,6 +139,7 @@ export default function ConditionsAssuranceScreen() {
           • L’entreprise décrit l’incident à Roomly, qui pourra demander des
           informations ou preuves complémentaires (photos, description, etc.).
         </Text>
+
         <Text style={styles.paragraph}>
           Selon la nature de l’incident, une participation financière
           (franchise) peut être demandée à l’utilisateur.
@@ -116,7 +163,7 @@ export default function ConditionsAssuranceScreen() {
         </Text>
 
         <Text style={styles.footer}>
-          Version MVP – ces conditions sont fournies à titre informatif dans le
+          Version MVP — ces conditions sont fournies à titre informatif dans le
           cadre du prototype Roomly.
         </Text>
 
@@ -151,7 +198,7 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: "#000",
-    marginBottom: 18,
+    marginVertical: 18,
   },
   title: {
     fontSize: 22,
@@ -174,6 +221,9 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 4,
     paddingLeft: 10,
+  },
+  bold: {
+    fontWeight: "700",
   },
   footer: {
     marginTop: 18,

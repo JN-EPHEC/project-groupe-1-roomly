@@ -64,6 +64,10 @@ export default function HomeUtilisateur() {
   const [espaces, setEspaces] = useState<Espace[]>([]);
   const [filteredEspaces, setFilteredEspaces] = useState<Espace[]>([]);
 
+  // 🔹 Recommandations
+  const [recommendedEspaces, setRecommendedEspaces] = useState<Espace[]>([]);
+  const [loadingReco, setLoadingReco] = useState(true);
+
   const [activeFilter, setActiveFilter] = useState<
     "Tous" | "Nouveaux lieux" | "Populaires"
   >("Tous");
@@ -82,6 +86,73 @@ export default function HomeUtilisateur() {
   );
   const [contactMessage, setContactMessage] = useState("");
   const [sendingContact, setSendingContact] = useState(false);
+
+  /* ------------------ RECOMMANDATIONS ------------------ */
+
+  const loadRecommendations = async (
+    userId: string | null | undefined,
+    allEspaces: Espace[]
+  ) => {
+    try {
+      setLoadingReco(true);
+
+      if (!allEspaces || allEspaces.length === 0) {
+        setRecommendedEspaces([]);
+        return;
+      }
+
+      // Si pas connecté → simple recommandation par défaut (premiers espaces)
+      if (!userId) {
+        setRecommendedEspaces(allEspaces.slice(0, 5));
+        return;
+      }
+
+      // Réservations de cet utilisateur
+      const qResa = query(
+        collection(db, "reservations"),
+        where("userId", "==", userId)
+      );
+      const resaSnap = await getDocs(qResa);
+
+      // Aucun historique → fallback simple
+      if (resaSnap.empty) {
+        setRecommendedEspaces(allEspaces.slice(0, 5));
+        return;
+      }
+
+      // Compter le nombre de réservations par espace
+      const counts: Record<string, number> = {};
+      resaSnap.forEach((d) => {
+        const data = d.data() as any;
+        const eId = data.espaceId;
+        if (!eId) return;
+        counts[eId] = (counts[eId] || 0) + 1;
+      });
+
+      const sortedIds = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1]) // plus fréquent → en premier
+        .slice(0, 5)
+        .map(([espaceId]) => espaceId);
+
+      const recoList: Espace[] = [];
+      for (const espaceId of sortedIds) {
+        const found = allEspaces.find((e) => e.id === espaceId);
+        if (found) recoList.push(found);
+      }
+
+      // Si pour une raison quelconque aucune correspondance, fallback
+      if (recoList.length === 0) {
+        setRecommendedEspaces(allEspaces.slice(0, 5));
+      } else {
+        setRecommendedEspaces(recoList);
+      }
+    } catch (e) {
+      console.log("Erreur chargement recommandations :", e);
+      setRecommendedEspaces([]);
+    } finally {
+      setLoadingReco(false);
+    }
+  };
 
   /* ------------------ LOAD DATA ------------------ */
   useEffect(() => {
@@ -123,13 +194,16 @@ export default function HomeUtilisateur() {
         }));
 
         const list: Espace[] = rawList.filter((e: any) => {
-  if (e.status === "en attente de validation") return false;
-  if (e.status === "desactive") return false; // 🔹 espace désactivé par l’entreprise
-  return true;
-});
+          if (e.status === "en attente de validation") return false;
+          if (e.status === "desactive") return false; // espace désactivé par l’entreprise
+          return true;
+        });
 
         setEspaces(list);
         setFilteredEspaces(list);
+
+        // 3) Recommandations en fonction de l'historique
+        await loadRecommendations(userId, list);
       } catch (e) {
         console.log("Erreur load home:", e);
       } finally {
@@ -416,6 +490,49 @@ export default function HomeUtilisateur() {
           </Pressable>
         </View>
 
+        {/* SECTION RECOMMANDÉ POUR VOUS */}
+        {!loadingReco && recommendedEspaces.length > 0 && (
+          <>
+            <Text style={styles.sectionTitleLeft}>Recommandé pour vous</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.recoScroll}
+            >
+              {recommendedEspaces.map((e) => (
+                <Pressable
+                  key={e.id}
+                  style={styles.recoCard}
+                  onPress={() =>
+                    router.push(`/user/details_espace/${e.id}`)
+                  }
+                >
+                  {e.images?.[0] ? (
+                    <Image
+                      source={{ uri: e.images[0] }}
+                      style={styles.recoImage}
+                    />
+                  ) : (
+                    <Image
+                      source={require("../../assets/images/roomly-logo.png")}
+                      style={styles.recoImage}
+                    />
+                  )}
+                  <Text style={styles.recoName} numberOfLines={1}>
+                    {e.nom || "Espace"}
+                  </Text>
+                  <Text style={styles.recoLocation} numberOfLines={1}>
+                    {e.localisation || ""}
+                  </Text>
+                  {e.prix && (
+                    <Text style={styles.recoPrice}>{e.prix} €/h</Text>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
+        )}
+
         {/* BUREAUX */}
         <Text style={styles.sectionTitleLeft}>Bureaux disponibles</Text>
 
@@ -595,7 +712,6 @@ export default function HomeUtilisateur() {
                         </Text>
                       </Pressable>
                     ) : (
-                      // Si nombre impair : on laisse un espace vide pour compléter la ligne
                       <View style={[styles.espaceCardVertical, { opacity: 0 }]} />
                     )}
                   </View>
@@ -759,6 +875,40 @@ const styles = StyleSheet.create({
     color: "#3E7CB1",
     fontWeight: "600",
     fontSize: 14,
+  },
+
+  /* Recommandations */
+  recoScroll: {
+    width: "90%",
+    marginBottom: 10,
+  },
+  recoCard: {
+    width: 180,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 8,
+    marginRight: 10,
+  },
+  recoImage: {
+    width: "100%",
+    height: 90,
+    borderRadius: 10,
+    marginBottom: 6,
+  },
+  recoName: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  recoLocation: {
+    fontSize: 12,
+    color: "#555",
+    marginTop: 2,
+  },
+  recoPrice: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#3E7CB1",
   },
 
   /* Formulaire contact (en bas) */

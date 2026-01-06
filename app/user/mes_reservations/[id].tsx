@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -24,6 +25,9 @@ import * as Sharing from "expo-sharing";
 /* ---------- CONST + HELPER POUR 24H AVANT ---------- */
 
 const MS_24H = 24 * 60 * 60 * 1000;
+
+// 🔗 base du lien de réservation à adapter si besoin (deep-link / site web)
+const SHARE_BASE_URL = "https://roomly.app/reservation";
 
 function getReservationStartDate(resa: any): Date | null {
   if (!resa?.date || !resa?.slots || resa.slots.length === 0) return null;
@@ -318,6 +322,33 @@ export default function ReservationDetail() {
     }
   };
 
+  /* -------------------- PARTAGE RÉSERVATION (MOBILE) -------------------- */
+
+  const handleShareReservation = async () => {
+    if (!reservation) return;
+
+    const reservationId = String(id);
+    const url = `${SHARE_BASE_URL}/${reservationId}`;
+    const dateStr = formatDateFR(reservation.date);
+    const espaceNomLocal = espace?.nom || "un espace Roomly";
+
+    const message = `Voici le lien de ma réservation Roomly pour "${espaceNomLocal}" le ${dateStr} : ${url}`;
+
+    if (Platform.OS === "web") {
+      alert(
+        `Le partage natif est disponible sur mobile.\n\nLien de la réservation :\n${url}`
+      );
+      return;
+    }
+
+    try {
+      await Share.share({ message });
+    } catch (e) {
+      console.log("Erreur partage réservation :", e);
+      alert("Impossible de partager la réservation pour le moment.");
+    }
+  };
+
   /* -------------------- ANNULATION + DEMANDE DE REMBOURSEMENT -------------------- */
 
   const handleCancelReservation = async () => {
@@ -424,9 +455,6 @@ export default function ReservationDetail() {
               <Text style={styles.backIcon}>‹</Text>
             </Pressable>
 
-          ...
-
-
             <Image
               source={require("../../../assets/images/roomly-logo.png")}
               style={styles.logo}
@@ -480,6 +508,16 @@ export default function ReservationDetail() {
             </Text>
           </View>
 
+          {/* Bouton partage réservation */}
+          <Pressable
+            style={styles.shareButton}
+            onPress={handleShareReservation}
+          >
+            <Text style={styles.shareButtonText}>
+              Partager la réservation
+            </Text>
+          </Pressable>
+
           <View style={{ height: 20 }} />
 
           {/* Bloc IBAN pour remboursement */}
@@ -505,35 +543,56 @@ export default function ReservationDetail() {
           <View style={{ height: 10 }} />
 
           {/* Statut / bouton annulation */}
-          {reservation.status === "annulée" ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Statut</Text>
-              <Text style={{ color: "#c0392b", fontWeight: "700" }}>
-                Réservation annulée
-              </Text>
-              {reservation.paymentStatus && (
-                <Text style={{ marginTop: 4 }}>
-                  Statut paiement : {reservation.paymentStatus}
-                </Text>
-              )}
-              {reservation.refundIban && (
-                <Text style={{ marginTop: 4 }}>
-                  IBAN pour remboursement : {reservation.refundIban}
-                </Text>
-              )}
-            </View>
-          ) : (
-            canCancel && (
-              <Pressable
-                style={styles.cancelButton}
-                onPress={handleCancelReservation}
-              >
-                <Text style={styles.cancelButtonText}>
-                  Annuler la réservation
-                </Text>
-              </Pressable>
-            )
-          )}
+{reservation.status === "annulée" && reservation.cancelledBy === "entreprise" ? (
+  <View style={styles.card}>
+    <Text style={styles.cardTitle}>Statut</Text>
+    <Text style={{ color: "#c0392b", fontWeight: "700" }}>
+      Réservation annulée par l’entreprise
+    </Text>
+    <Text style={{ marginTop: 4 }}>
+      Un remboursement intégral a été enregistré pour cette réservation.
+    </Text>
+    {reservation.paymentStatus && (
+      <Text style={{ marginTop: 4 }}>
+        Statut paiement : {reservation.paymentStatus}
+      </Text>
+    )}
+    {typeof reservation.refundAmount === "number" && (
+      <Text style={{ marginTop: 4 }}>
+        Montant remboursé : {Number(reservation.refundAmount).toFixed(2)} €
+      </Text>
+    )}
+  </View>
+) : reservation.status === "annulée" ? (
+  // Annulation par l'utilisateur (ton comportement actuel)
+  <View style={styles.card}>
+    <Text style={styles.cardTitle}>Statut</Text>
+    <Text style={{ color: "#c0392b", fontWeight: "700" }}>
+      Réservation annulée
+    </Text>
+    {reservation.paymentStatus && (
+      <Text style={{ marginTop: 4 }}>
+        Statut paiement : {reservation.paymentStatus}
+      </Text>
+    )}
+    {reservation.refundIban && (
+      <Text style={{ marginTop: 4 }}>
+        IBAN pour remboursement : {reservation.refundIban}
+      </Text>
+    )}
+  </View>
+) : (
+  canCancel && (
+    <Pressable
+      style={styles.cancelButton}
+      onPress={handleCancelReservation}
+    >
+      <Text style={styles.cancelButtonText}>
+        Annuler la réservation
+      </Text>
+    </Pressable>
+  )
+)}
 
           <View style={{ height: 20 }} />
 
@@ -544,7 +603,7 @@ export default function ReservationDetail() {
 
           <View style={{ height: 20 }} />
 
-                    {/* ------ AVIS UTILISATEUR SUR L'ESPACE ------ */}
+          {/* ------ AVIS UTILISATEUR SUR L'ESPACE ------ */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
               {existingReview ? "Votre avis" : "Laisser un avis"}
@@ -592,7 +651,6 @@ export default function ReservationDetail() {
               </>
             )}
           </View>
-
 
           <View style={{ height: 120 }} />
         </ScrollView>
@@ -708,6 +766,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   cancelButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+
+  // Partage réservation
+  shareButton: {
+    width: "90%",
+    backgroundColor: "#3E7CB1",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  shareButtonText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 15,

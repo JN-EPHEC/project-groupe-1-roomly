@@ -2,18 +2,18 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-    collection,
-    getDocs,
+  collection,
+  getDocs,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { db } from "../../firebaseConfig";
 
@@ -42,6 +42,12 @@ type ReservationItem = {
   userEmail?: string;
 };
 
+type MonthlyInscriptions = {
+  monthKey: string; // ex: "2026-01"
+  label: string;    // ex: "01/2026"
+  count: number;
+};
+
 export default function AdminStatistiques() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -50,10 +56,13 @@ export default function AdminStatistiques() {
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
   const [userFilter, setUserFilter] = useState("");
 
+  // 🔹 nouveaux utilisateurs par mois
+  const [monthlyInscriptions, setMonthlyInscriptions] = useState<MonthlyInscriptions[]>([]);
+
   useEffect(() => {
     const loadStats = async () => {
       try {
-        // ESPACES
+        // ---------------- ESPACES ----------------
         const espacesSnap = await getDocs(collection(db, "espaces"));
         let nbEspaces = 0;
         let nbEspacesValides = 0;
@@ -69,7 +78,7 @@ export default function AdminStatistiques() {
           else if (s === STATUS_REFUSE) nbEspacesRefuses++;
         });
 
-        // RÉSERVATIONS
+        // ---------------- RÉSERVATIONS ----------------
         const resaSnap = await getDocs(collection(db, "reservations"));
         let nbReservations = 0;
         let nbReservationsPayees = 0;
@@ -122,18 +131,50 @@ export default function AdminStatistiques() {
           });
         });
 
-        // UTILISATEURS
+        // ---------------- UTILISATEURS ----------------
         const usersSnap = await getDocs(collection(db, "users"));
         let nbUtilisateurs = 0;
         let nbEntreprises = 0;
+
+        // Compteur par mois (clé "YYYY-MM")
+        const monthlyCounts: Record<string, number> = {};
 
         usersSnap.forEach((d) => {
           const data: any = d.data();
           const type = data.type || "";
           if (type === "utilisateur") nbUtilisateurs++;
           if (type === "entreprise") nbEntreprises++;
+
+          // Comptage des inscriptions par mois si createdAt présent
+          if (data.createdAt) {
+            const date: Date = data.createdAt.toDate
+              ? data.createdAt.toDate()
+              : new Date(data.createdAt);
+
+            if (!isNaN(date.getTime())) {
+              const year = date.getFullYear();
+              const month = date.getMonth() + 1; // 0-11 -> 1-12
+              const key = `${year}-${String(month).padStart(2, "0")}`;
+
+              if (!monthlyCounts[key]) monthlyCounts[key] = 0;
+              monthlyCounts[key] += 1;
+            }
+          }
         });
 
+        // Transformation en tableau trié pour affichage
+        const monthlyEntries: MonthlyInscriptions[] = Object.keys(monthlyCounts)
+          .sort() // tri chrono "2025-10" < "2025-11" < "2026-01"
+          .map((key) => {
+            const [yearStr, monthStr] = key.split("-");
+            return {
+              monthKey: key,
+              label: `${monthStr}/${yearStr}`, // "01/2026"
+              count: monthlyCounts[key],
+            };
+          });
+
+        setMonthlyInscriptions(monthlyEntries);
         setReservations(resaItems);
 
         setStats({
@@ -159,7 +200,7 @@ export default function AdminStatistiques() {
     loadStats();
   }, []);
 
-  // Stats filtrées par utilisateur (email)
+  // -------- Stats filtrées par utilisateur (email) --------
   let userStats:
     | { nbReservations: number; nbReservationsPayees: number; revenuTotal: number }
     | null = null;
@@ -263,6 +304,40 @@ export default function AdminStatistiques() {
               </Text>
             </View>
 
+            {/* 🔹 Bloc nouveaux utilisateurs par mois */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Nouveaux utilisateurs par mois</Text>
+              {monthlyInscriptions.length === 0 ? (
+                <Text style={styles.line}>
+                  Aucune donnée d’inscription (champ{" "}
+                  <Text style={{ fontWeight: "700" }}>createdAt</Text>{" "}
+                  manquant sur la collection users).
+                </Text>
+              ) : (
+                <View style={styles.table}>
+                  <View style={[styles.tableRow, styles.tableHeader]}>
+                    <Text style={[styles.tableCell, styles.tableCellMonth]}>
+                      Mois
+                    </Text>
+                    <Text style={[styles.tableCell, styles.tableCellCount]}>
+                      Nouveaux utilisateurs
+                    </Text>
+                  </View>
+
+                  {monthlyInscriptions.map((entry) => (
+                    <View key={entry.monthKey} style={styles.tableRow}>
+                      <Text style={[styles.tableCell, styles.tableCellMonth]}>
+                        {entry.label}
+                      </Text>
+                      <Text style={[styles.tableCell, styles.tableCellCount]}>
+                        {entry.count}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
             {/* Stats par utilisateur */}
             <Text style={styles.sectionTitle}>Statistiques par utilisateur</Text>
             <TextInput
@@ -358,5 +433,36 @@ const styles = StyleSheet.create({
     borderColor: "#ccc",
     marginBottom: 12,
     fontSize: 14,
+  },
+
+  // tableau inscriptions / mois
+  table: {
+    marginTop: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E1E5EF",
+    overflow: "hidden",
+  },
+  tableRow: {
+    flexDirection: "row",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E1E5EF",
+  },
+  tableHeader: {
+    backgroundColor: "#DDE7F5",
+  },
+  tableCell: {
+    fontSize: 13,
+  },
+  tableCellMonth: {
+    flex: 1,
+    fontWeight: "600",
+  },
+  tableCellCount: {
+    width: 120,
+    textAlign: "right",
+    fontWeight: "700",
   },
 });

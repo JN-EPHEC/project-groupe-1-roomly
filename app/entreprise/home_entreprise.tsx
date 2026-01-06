@@ -718,6 +718,10 @@ export default function HomeEntreprise() {
             >
               <Text style={styles.faqLinkText}>Mes tickets</Text>
             </Pressable>
+            <Pressable style={styles.faqLinkButton}
+              onPress={() => router.push("/entreprise/export_donnees")}>
+                <Text style={styles.faqLinkText}>Exporter mes données</Text>
+              </Pressable>
           </View>
         </View>
       </ScrollView>
