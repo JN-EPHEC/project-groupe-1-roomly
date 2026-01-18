@@ -197,10 +197,7 @@ export default function ReservationsEntreprise() {
       return;
     }
     if (reservation.status === "annulée") {
-      Alert.alert(
-        "Déjà annulée",
-        "Cette réservation a déjà été annulée."
-      );
+      Alert.alert("Déjà annulée", "Cette réservation a déjà été annulée.");
       return;
     }
 
@@ -218,6 +215,7 @@ export default function ReservationsEntreprise() {
             try {
               const refundAmount = total;
 
+              // 1) Annulation + remboursement intégral (MVP)
               await updateDoc(doc(db, "reservations", reservation.id), {
                 status: "annulée",
                 cancelledBy: "entreprise",
@@ -226,7 +224,24 @@ export default function ReservationsEntreprise() {
                 refundAmount,
               });
 
-              // mise à jour locale
+              // 2) Création d'une notification pour l'utilisateur
+              if (reservation.userId) {
+                await addDoc(collection(db, "notifications"), {
+                  userId: reservation.userId,
+                  type: "reservation_cancelled_by_entreprise",
+                  reservationId: reservation.id,
+                  titre: "Réservation annulée",
+                  message: `Votre réservation pour "${reservation.espaceNom}" du ${new Date(
+                    reservation.date
+                  ).toLocaleDateString(
+                    "fr-FR"
+                  )} a été annulée par l’entreprise. Un remboursement intégral est enregistré.`,
+                  read: false,
+                  createdAt: serverTimestamp(),
+                });
+              }
+
+              // 3) Mise à jour locale
               setReservations((prev) =>
                 prev.map((r) =>
                   r.id === reservation.id

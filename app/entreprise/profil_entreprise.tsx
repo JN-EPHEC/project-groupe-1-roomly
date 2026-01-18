@@ -1,17 +1,18 @@
 // app/entreprise/profil_entreprise.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { deleteUser } from "firebase/auth";
+import { deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import BottomNavBarEntreprise from "../../components/BottomNavBarEntreprise";
 import { auth, db } from "../../firebaseConfig";
@@ -70,6 +71,55 @@ export default function EntrepriseProfileScreen() {
 
     return () => unsub();
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      router.replace("/(tabs))");
+    } catch (e) {
+      Alert.alert("Erreur", "Impossible de se déconnecter.");
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Supprimer le compte entreprise",
+      "Cette action est définitive. Toutes les données de votre entreprise (espaces, réservations, etc.) seront supprimées. Continuer ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const current = auth.currentUser;
+              if (!current) return;
+
+              const uid = current.uid;
+
+              await deleteDoc(doc(db, "users", uid));
+              await deleteUser(current);
+
+              router.replace("/public/login");
+            } catch (e: any) {
+              console.log("Erreur suppression compte entreprise:", e);
+              if (e?.code === "auth/requires-recent-login") {
+                Alert.alert(
+                  "Action impossible",
+                  "Reconnectez-vous avant de supprimer votre compte."
+                );
+              } else {
+                Alert.alert(
+                  "Erreur",
+                  "Impossible de supprimer le compte pour l'instant."
+                );
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const initials = useMemo(() => {
     const name = data?.companyName || data?.email || "";
@@ -383,7 +433,7 @@ export default function EntrepriseProfileScreen() {
                 onPress={() =>
                   Alert.alert(
                     "Réservations",
-                    "Ici on pourrait afficher l’historique des réservations liées à vos espaces."
+                    "Ici on pourrait afficher l'historique des réservations liées à vos espaces."
                   )
                 }
               >
@@ -404,7 +454,7 @@ export default function EntrepriseProfileScreen() {
                 }
               >
                 <Text style={styles.subMenuText}>
-                  Télécharger les données de l’entreprise
+                  Télécharger les données de l'entreprise
                 </Text>
               </Pressable>
             </View>
@@ -449,14 +499,13 @@ export default function EntrepriseProfileScreen() {
               <View style={styles.subDivider} />
 
               <Pressable
-  style={styles.subMenuItem}
-  onPress={() => router.push("./confidentialite")}
->
-  <Text style={styles.subMenuText}>
-    Conditions & confidentialité
-  </Text>
-</Pressable>
-
+                style={styles.subMenuItem}
+                onPress={() => router.push("./confidentialite")}
+              >
+                <Text style={styles.subMenuText}>
+                  Conditions & confidentialité
+                </Text>
+              </Pressable>
 
               <View style={styles.subDivider} />
 
@@ -467,12 +516,21 @@ export default function EntrepriseProfileScreen() {
                 }
               >
                 <Text style={styles.subMenuText}>
-                  Version de l’application
+                  Version de l'application
                 </Text>
               </Pressable>
             </View>
           )}
         </View>
+
+        {/* BOUTONS EN BAS - AJOUTÉS */}
+        <Pressable style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutText}>Se déconnecter</Text>
+        </Pressable>
+
+        <Pressable style={styles.deleteBtn} onPress={handleDeleteAccount}>
+          <Text style={styles.deleteText}>Supprimer mon compte</Text>
+        </Pressable>
       </ScrollView>
 
       <BottomNavBarEntreprise activeTab="profile" />
@@ -605,5 +663,39 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#E2E8F0",
     marginVertical: 4,
+  },
+
+  // NOUVEAUX STYLES POUR LES BOUTONS
+  logoutBtn: {
+    backgroundColor: "#E74C3C",
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 24,
+    alignSelf: "center",
+    marginTop: 4,
+    marginBottom: 10,
+  },
+
+  logoutText: { 
+    color: "#fff", 
+    fontWeight: "700", 
+    fontSize: 15 
+  },
+
+  deleteBtn: {
+    marginTop: 0,
+    marginBottom: 30,
+    alignSelf: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#BB0000",
+  },
+
+  deleteText: {
+    color: "#BB0000",
+    fontWeight: "600",
+    fontSize: 14,
   },
 });

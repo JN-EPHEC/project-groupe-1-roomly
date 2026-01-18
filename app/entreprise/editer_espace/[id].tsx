@@ -1,4 +1,4 @@
-// app/entreprise/espace/editer_espace.tsx
+// app/entreprise/editer_espace.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -34,7 +34,7 @@ type TimeSlot = {
   end: string;
 };
 
-// ✅ statut utilisé quand l’entreprise modifie son annonce
+// ✅ statut utilisé quand l'entreprise modifie son annonce
 const STATUS_ATTENTE = "en attente de validation";
 
 export default function EditerEspace() {
@@ -43,6 +43,7 @@ export default function EditerEspace() {
 
   const [loading, setLoading] = useState(true);
 
+  const [titre, setTitre] = useState(""); // AJOUTÉ: champ titre
   const [description, setDescription] = useState("");
   const [localisation, setLocalisation] = useState("");
   const [capacite, setCapacite] = useState("");
@@ -74,6 +75,7 @@ export default function EditerEspace() {
         if (snap.exists()) {
           const data: any = snap.data();
 
+          setTitre(data.titre || data.nom || ""); // AJOUTÉ: récupère le titre
           setDescription(data.description || "");
           setLocalisation(data.localisation || "");
           setInitialLocalisation(data.localisation || "");
@@ -267,7 +269,7 @@ export default function EditerEspace() {
         if (!coords) {
           Alert.alert(
             "Localisation introuvable",
-            "Google n’a pas trouvé cette adresse/ville. Essaie un format plus précis."
+            "Google n'a pas trouvé cette adresse/ville. Essaie un format plus précis."
           );
           setLoading(false);
           return;
@@ -280,6 +282,8 @@ export default function EditerEspace() {
       }
 
       await updateDoc(doc(db, "espaces", id as string), {
+        titre: titre, // AJOUTÉ: sauvegarde le titre
+        nom: titre || description.substring(0, 20) || "Espace", // MODIFIÉ: utilise le titre pour nom
         description,
         localisation,
         ...extraCoords,
@@ -298,7 +302,7 @@ export default function EditerEspace() {
 
       Alert.alert(
         "OK",
-        "Annonce mise à jour et renvoyée pour validation par l’administrateur."
+        "Annonce mise à jour et renvoyée pour validation par l'administrateur."
       );
       router.push("/entreprise/home_entreprise");
     } catch (e) {
@@ -328,7 +332,7 @@ export default function EditerEspace() {
           <Ionicons name="arrow-back" size={26} color="#000" />
         </Pressable>
 
-        <Text style={styles.title}>Modifier l’espace</Text>
+        <Text style={styles.title}>Modifier l'espace</Text>
 
         {/* IMAGES */}
         <View style={styles.imageRow}>
@@ -355,6 +359,16 @@ export default function EditerEspace() {
         </View>
 
         {/* FORM INFOS */}
+        {/* CHAMP TITRE AJOUTÉ */}
+        <Text style={styles.label}>Titre de l'annonce</Text>
+        <TextInput
+          style={styles.input}
+          value={titre}
+          onChangeText={setTitre}
+          placeholder="Ex: Bureau moderne avec vue"
+          maxLength={50}
+        />
+
         <Text style={styles.label}>Description</Text>
         <TextInput
           style={styles.input}
@@ -399,7 +413,7 @@ export default function EditerEspace() {
             marginBottom: 4,
           }}
         >
-          <Text style={styles.label}>Disponibilités de l’espace</Text>
+          <Text style={styles.label}>Disponibilités de l'espace</Text>
           <Pressable onPress={() => setShowCalendar((v) => !v)}>
             <Text style={styles.calendarLink}>
               {showCalendar ? "Fermer le calendrier" : "Choisir via le calendrier"}

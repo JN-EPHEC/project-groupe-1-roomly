@@ -70,7 +70,7 @@ export default function UserProfileScreen() {
   const handleLogout = async () => {
     try {
       await auth.signOut();
-      router.replace("/public/login");
+      router.replace("/(tabs)");
     } catch (e) {
       Alert.alert("Erreur", "Impossible de se déconnecter.");
     }

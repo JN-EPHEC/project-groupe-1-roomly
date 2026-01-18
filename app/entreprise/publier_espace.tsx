@@ -32,6 +32,7 @@ type TimeSlot = {
 export default function PublierEspaceScreen() {
   const router = useRouter();
 
+  const [titre, setTitre] = useState(""); // AJOUTÉ: champ titre
   const [description, setDescription] = useState("");
   const [localisation, setLocalisation] = useState("");
   const [capacite, setCapacite] = useState("");
@@ -165,14 +166,15 @@ export default function PublierEspaceScreen() {
       if (!coords) {
         Alert.alert(
           "Localisation introuvable",
-          "Google n’a pas trouvé cette adresse/ville. Essaie un format plus précis (ex: '25 Rue X, Bruxelles')."
+          "Google n'a pas trouvé cette adresse/ville. Essaie un format plus précis (ex: '25 Rue X, Bruxelles')."
         );
         return;
       }
 
       await addDoc(collection(db, "espaces"), {
         uid: auth.currentUser.uid,
-        nom: description.substring(0, 20) || "Espace",
+        nom: titre || description.substring(0, 20) || "Espace", // MODIFIÉ: utilise le titre
+        titre: titre, // AJOUTÉ: sauvegarde le titre séparément
         description,
         localisation,
         latitude: coords.lat,
@@ -230,12 +232,22 @@ export default function PublierEspaceScreen() {
           ))}
         </View>
 
+        {/* CHAMP TITRE AJOUTÉ */}
+        <Text style={styles.label}>Titre de l'annonce</Text>
+        <TextInput
+          style={styles.input}
+          value={titre}
+          onChangeText={setTitre}
+          placeholder="Ex: Grand bureau avec vue panoramique"
+          maxLength={50}
+        />
+
         <Text style={styles.label}>Description</Text>
         <TextInput
           style={styles.inputLarge}
           value={description}
           onChangeText={setDescription}
-          placeholder="..."
+          placeholder="Décrivez votre espace en détail..."
           multiline
         />
 
@@ -269,16 +281,17 @@ export default function PublierEspaceScreen() {
           style={styles.inputLarge}
           value={materiel}
           onChangeText={setMateriel}
+          placeholder="Listez le matériel disponible..."
           multiline
         />
 
-        <Text style={styles.label}>Détails d’accès / instructions</Text>
+        <Text style={styles.label}>Détails d'accès / instructions</Text>
         <TextInput
           style={styles.inputLarge}
           value={accessDetails}
           onChangeText={setAccessDetails}
           placeholder={
-            "Code d’accès, étage, personne de contact...\n(ex : Code porte 1234, 4e étage...)"
+            "Code d'accès, étage, personne de contact...\n(ex : Code porte 1234, 4e étage...)"
           }
           multiline
         />

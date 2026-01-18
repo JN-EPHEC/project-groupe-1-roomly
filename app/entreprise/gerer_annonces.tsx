@@ -62,6 +62,7 @@ type Espace = {
   images?: string[];
   status?: string;
   motifRefus?: string | null;
+  description?: string; // AJOUTÉ
 
   boostType?: BoostType | null;
   boostUntil?: any | null;
@@ -176,7 +177,7 @@ export default function GererAnnoncesScreen() {
           setEspaces((prev) => prev.filter((e) => e.id !== id));
         } catch (e) {
           console.log("Erreur suppression (web) :", e);
-          alert("Impossible de supprimer l’annonce.");
+          alert("Impossible de supprimer l'annonce.");
         }
       })();
 
@@ -184,7 +185,7 @@ export default function GererAnnoncesScreen() {
     }
 
     Alert.alert(
-      "Supprimer l’annonce",
+      "Supprimer l'annonce",
       "Voulez-vous vraiment supprimer définitivement cette annonce ?",
       [
         { text: "Annuler", style: "cancel" },
@@ -200,7 +201,7 @@ export default function GererAnnoncesScreen() {
               console.log("Erreur suppression (mobile) :", e);
               Alert.alert(
                 "Erreur",
-                "Impossible de supprimer l’annonce pour le moment."
+                "Impossible de supprimer l'annonce pour le moment."
               );
             }
           },
@@ -225,7 +226,7 @@ export default function GererAnnoncesScreen() {
     if (status === STATUS_ATTENTE) {
       return (
         <View style={[styles.badge, styles.badgeAttente]}>
-          <Text style={styles.badgeText}>En attente de validation</Text>
+          <Text style={styles.badgeText}>En attente</Text>
         </View>
       );
     }
@@ -249,7 +250,7 @@ export default function GererAnnoncesScreen() {
   const toggleStatus = async (espace: Espace) => {
     const current = espace.status;
 
-    // On limite l’action aux annonces validées ou déjà désactivées
+    // On limite l'action aux annonces validées ou déjà désactivées
     if (current !== STATUS_VALIDE && current !== STATUS_DESACTIVE) {
       Alert.alert(
         "Action impossible",
@@ -333,7 +334,7 @@ export default function GererAnnoncesScreen() {
       closeBoostModal();
     } catch (e) {
       console.log("Erreur boost :", e);
-      Alert.alert("Erreur", "Impossible d’activer le boost pour le moment.");
+      Alert.alert("Erreur", "Impossible d'activer le boost pour le moment.");
       setBoostLoading(false);
     } finally {
       setBoostLoading(false);
@@ -400,7 +401,7 @@ export default function GererAnnoncesScreen() {
                 {/* Infos */}
                 <View style={styles.info}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={styles.localisation}>
+                    <Text style={styles.titre}>
                       {espace.nom || espace.localisation || "Espace"}
                     </Text>
                     {boosted && (
@@ -411,6 +412,13 @@ export default function GererAnnoncesScreen() {
                   </View>
 
                   <Text style={styles.prix}>{espace.prix} €/h</Text>
+                  
+                  {/* Description (affichage limité) */}
+                  {espace.description && (
+                    <Text style={styles.descriptionText} numberOfLines={2}>
+                      {espace.description}
+                    </Text>
+                  )}
 
                   {/* Statut */}
                   {renderStatusBadge(espace.status)}
@@ -495,7 +503,7 @@ export default function GererAnnoncesScreen() {
       {boostModalVisible && selectedEspace && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Booster l’annonce</Text>
+            <Text style={styles.modalTitle}>Booster l'annonce</Text>
             <Text style={styles.modalSubtitle}>
               {selectedEspace.nom ||
                 selectedEspace.localisation ||
@@ -669,6 +677,7 @@ const styles = StyleSheet.create({
     height: 85,
     borderRadius: 10,
     backgroundColor: "#ccc",
+    resizeMode: "cover", // AJOUTÉ: pour fill le cadrant
   },
 
   info: {
@@ -676,17 +685,26 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
 
-  localisation: {
+  titre: { // CHANGÉ: de localisation à titre
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
     marginRight: 8,
   },
 
+  descriptionText: { // NOUVEAU: pour afficher la description
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+    marginBottom: 6,
+    lineHeight: 14,
+  },
+
   prix: {
     fontSize: 14,
     color: "#444",
-    marginTop: 4,
+    marginTop: 2,
+    fontWeight: "600",
   },
 
   badge: {
